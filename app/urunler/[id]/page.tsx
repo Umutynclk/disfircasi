@@ -145,29 +145,20 @@ export default function ProductDetailPage() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-4"
           >
-            <div className="relative" style={{ perspective: '1000px' }}>
-              <motion.div 
-                className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl"
-                whileHover={{ 
-                  rotateY: 15,
-                  rotateX: -5,
-                  scale: 1.02
-                }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-                style={{ transformStyle: 'preserve-3d' }}
-              >
+            <div className="relative">
+              <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl group">
                 {currentImages && currentImages[selectedImage] ? (
                   <img
                     src={currentImages[selectedImage]}
                     alt={product.name}
-                    className="w-full h-full object-contain transition-transform duration-300"
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full">
                     <span className="text-9xl">🦷</span>
                   </div>
                 )}
-              </motion.div>
+              </div>
               {/* Stok Yok Overlay */}
               {product.inStock === false && (
                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-2xl pointer-events-none">
@@ -181,27 +172,21 @@ export default function ProductDetailPage() {
             {currentImages && currentImages.length > 1 && (
                     <div className="grid grid-cols-4 gap-4">
                       {currentImages.map((image, index) => (
-                        <motion.button
+                        <button
                           key={index}
                           onClick={() => setSelectedImage(index)}
-                          whileHover={{ 
-                            rotateY: 10,
-                            scale: 1.05
-                          }}
-                          transition={{ duration: 0.2, ease: "easeOut" }}
-                          className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
+                          className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all group ${
                             selectedImage === index
                               ? 'border-primary-600 ring-2 ring-primary-200'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
-                          style={{ transformStyle: 'preserve-3d', perspective: '500px' }}
                         >
                           <img
                             src={image}
                             alt={`${product.name} ${index + 1}`}
-                            className="w-full h-full object-contain"
+                            className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300"
                           />
-                        </motion.button>
+                        </button>
                       ))}
                     </div>
             )}

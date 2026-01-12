@@ -125,23 +125,13 @@ export default function ProductsPreview() {
                 {/* Product Image */}
                 <div className="relative aspect-[3/4] bg-gradient-to-br from-primary-100 to-primary-200 overflow-hidden">
                   {getProductImage(product) ? (
-                    <motion.div
-                      className="w-full h-full flex items-center justify-center perspective-1000"
-                      style={{ perspective: '1000px' }}
-                      whileHover={{ 
-                        rotateY: 15,
-                        rotateX: -5,
-                        scale: 1.05
-                      }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                    >
+                    <div className="w-full h-full flex items-center justify-center overflow-hidden">
                       <img 
                         src={getProductImage(product)} 
                         alt={product.name} 
-                        className="w-full h-full object-contain transition-transform duration-300"
-                        style={{ transformStyle: 'preserve-3d' }}
+                        className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
                       />
-                    </motion.div>
+                    </div>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <span className="text-8xl">🦷</span>
