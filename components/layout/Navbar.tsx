@@ -13,32 +13,13 @@ interface SiteSettings {
   siteDescription?: string
 }
 
-interface MenuCategory {
-  title: string
-  items: Array<{
-    title: string
-    url?: string
-    items?: Array<{
-      title: string
-      url: string
-    }>
-  }>
-}
-
-interface MenuContent {
-  buttonText?: string
-  categories?: MenuCategory[]
-}
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [siteName, setSiteName] = useState('SmileBrush')
-  const [menuOpen, setMenuOpen] = useState(false)
   const [productsMenuOpen, setProductsMenuOpen] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mobileProductsMenuOpen, setMobileProductsMenuOpen] = useState(false)
-  const [menuContent, setMenuContent] = useState<MenuContent | null>(null)
   const [productsMenuContent, setProductsMenuContent] = useState<any>(null)
   const [user, setUser] = useState<any>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -83,35 +64,6 @@ export default function Navbar() {
       return () => unsubscribe()
     } catch (error) {
       console.error('❌ Navbar initialization error:', error)
-    }
-  }, [])
-
-  useEffect(() => {
-    try {
-      const db = getFirestoreDB()
-      const menuRef = doc(db, 'siteContent', 'menu')
-      
-      // Real-time listener - Menu değişikliklerini dinle
-      const unsubscribe = onSnapshot(
-        menuRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data() as MenuContent
-            setMenuContent(data)
-            console.log('✅ Menu content loaded from Firebase:', data)
-          } else {
-            console.warn('⚠️ Menu content not found in Firebase')
-            setMenuContent(null)
-          }
-        },
-        (error) => {
-          console.error('❌ Menu snapshot error:', error)
-        }
-      )
-      
-      return () => unsubscribe()
-    } catch (error) {
-      console.error('❌ Menu initialization error:', error)
     }
   }, [])
 
@@ -257,128 +209,6 @@ export default function Navbar() {
               </Link>
             )}
             
-            {/* Dropdown Menu - Keşfet */}
-            {menuContent && menuContent.categories && menuContent.categories.length > 0 && (
-              <div 
-                className="relative"
-                onMouseEnter={() => setMenuOpen(true)}
-                onMouseLeave={() => setMenuOpen(false)}
-              >
-                <button className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all duration-200 ${
-                  menuOpen 
-                    ? 'text-primary-600 bg-primary-50' 
-                    : 'text-gray-700 hover:text-primary-600 hover:bg-gray-50'
-                }`}>
-                  <span className="font-medium">{menuContent.buttonText || 'Keşfet'}</span>
-                  <FiChevronDown className={`w-4 h-4 transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                
-                <AnimatePresence>
-                  {menuOpen && (
-                    <>
-                      {/* Backdrop */}
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/20 z-40 -top-20 left-0 right-0 bottom-0"
-                        onClick={() => setMenuOpen(false)}
-                      />
-                      
-                      {/* Dropdown Content */}
-                      <motion.div
-                        initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 15, scale: 0.95 }}
-                        transition={{ duration: 0.2, ease: "easeOut" }}
-                        className="absolute top-full left-0 mt-3 w-[calc(100vw-2rem)] max-w-[900px] bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50"
-                      >
-                        {/* Header Gradient */}
-                        <div className="bg-gradient-to-r from-primary-50 via-primary-100 to-primary-50 px-6 py-4 border-b border-primary-100">
-                          <h2 className="text-lg font-bold text-gray-900">{menuContent.buttonText || 'Keşfet'}</h2>
-                          <p className="text-sm text-gray-600 mt-1">Tüm içerikleri keşfedin</p>
-                        </div>
-                        
-                        {/* Menu Grid - Scrollable */}
-                        <div className="p-6 max-h-[70vh] overflow-y-auto overflow-x-hidden custom-scrollbar">
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {menuContent.categories.map((category, catIndex) => (
-                              <div
-                                key={catIndex}
-                                className="space-y-4 min-w-0 flex flex-col"
-                              >
-                                <div className="flex items-center gap-2 pb-3 border-b-2 border-primary-200 flex-shrink-0">
-                                  <div className="w-1.5 h-6 bg-gradient-to-b from-primary-500 to-primary-600 rounded-full flex-shrink-0"></div>
-                                  <h3 className="font-bold text-gray-900 text-sm lg:text-base uppercase tracking-wider break-words">
-                                    {category.title}
-                                  </h3>
-                                </div>
-                                <ul className="space-y-1 flex-1">
-                                  {category.items && category.items.length > 0 ? (
-                                    category.items.map((item, itemIndex) => (
-                                      <li key={itemIndex}>
-                                        {item.url ? (
-                                          <Link 
-                                            href={item.url}
-                                            onClick={() => setMenuOpen(false)}
-                                            className="group flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gradient-to-r hover:from-primary-50 hover:to-transparent hover:text-primary-600 transition-all duration-200 block"
-                                          >
-                                            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full group-hover:bg-primary-500 group-hover:w-2 group-hover:h-2 transition-all duration-200"></div>
-                                            <span className="text-sm font-medium group-hover:translate-x-1 transition-transform duration-200">
-                                              {item.title}
-                                            </span>
-                                          </Link>
-                                        ) : (
-                                          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-700">
-                                            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full"></div>
-                                            <span className="text-sm font-semibold text-gray-900">
-                                              {item.title}
-                                            </span>
-                                          </div>
-                                        )}
-                                        {item.items && item.items.length > 0 && (
-                                          <ul className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-4">
-                                            {item.items.map((subItem, subIndex) => (
-                                              <li key={subIndex}>
-                                                <Link 
-                                                  href={subItem.url}
-                                                  onClick={() => setMenuOpen(false)}
-                                                  className="group flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-500 hover:text-primary-600 hover:bg-primary-50 text-xs transition-all duration-200 block"
-                                                >
-                                                  <span className="w-1 h-1 bg-gray-400 rounded-full group-hover:bg-primary-500 transition-colors"></span>
-                                                  <span className="group-hover:translate-x-1 transition-transform duration-200">
-                                                    {subItem.title}
-                                                  </span>
-                                                </Link>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </li>
-                                    ))
-                                  ) : (
-                                    <li className="text-sm text-gray-400 italic">Henüz öğe eklenmemiş</li>
-                                  )}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        {/* Footer */}
-                        <div className="bg-gray-50 px-6 py-3 border-t border-gray-100">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs text-gray-500 truncate">Tüm içerikler için menüyü kullanın</p>
-                            <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse flex-shrink-0 ml-2"></div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-            
             <Link href="/hakkimizda" className="text-gray-700 hover:text-primary-600 transition-colors">
               Hakkımızda
             </Link>
@@ -519,58 +349,6 @@ export default function Navbar() {
                 <Link href="/urunler" className="block py-2 text-gray-700 hover:text-primary-600" onClick={() => setIsOpen(false)}>
                   Ürünler
                 </Link>
-              )}
-              
-              {/* Mobile Menu Dropdown */}
-              {menuContent && menuContent.categories && menuContent.categories.length > 0 && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="w-full flex items-center justify-between py-3 px-4 bg-gradient-to-r from-primary-50 to-transparent rounded-lg hover:from-primary-100 transition-all duration-200"
-                  >
-                    <span className="font-semibold text-gray-900">{menuContent.buttonText || 'Keşfet'}</span>
-                    <FiChevronDown className={`w-5 h-5 text-primary-600 transition-transform duration-200 ${mobileMenuOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {mobileMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="ml-4 space-y-3 border-l-2 border-primary-200 pl-4"
-                    >
-                      {menuContent.categories.map((category, catIndex) => (
-                        <motion.div
-                          key={catIndex}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: catIndex * 0.05 }}
-                          className="space-y-2"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 bg-gradient-to-b from-primary-500 to-primary-600 rounded-full"></div>
-                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">{category.title}</span>
-                          </div>
-                          <div className="space-y-1 ml-3">
-                            {category.items.map((item, itemIndex) => (
-                              <Link
-                                key={itemIndex}
-                                href={item.url || '#'}
-                                className="flex items-center gap-2 py-2 px-3 rounded-lg text-sm text-gray-600 hover:text-primary-600 hover:bg-primary-50 transition-all duration-200 block"
-                                onClick={() => {
-                                  setIsOpen(false)
-                                  setMobileMenuOpen(false)
-                                }}
-                              >
-                                <div className="w-1.5 h-1.5 bg-gray-300 rounded-full"></div>
-                                {item.title}
-                              </Link>
-                            ))}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </motion.div>
-                  )}
-                </div>
               )}
               
               <Link href="/hakkimizda" className="block py-2 text-gray-700 hover:text-primary-600" onClick={() => setIsOpen(false)}>

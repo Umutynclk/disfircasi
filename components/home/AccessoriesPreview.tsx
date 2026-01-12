@@ -141,14 +141,20 @@ export default function AccessoriesPreview() {
                 className="group bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-100"
               >
                 {/* Product Image */}
-                <div className="relative h-64 bg-gradient-to-br from-primary-100 to-primary-200 overflow-hidden cursor-pointer">
+                <div className="relative aspect-[3/4] bg-gradient-to-br from-primary-100 to-primary-200 overflow-hidden cursor-pointer">
                   <Link href={`/urunler/${product.id}`}>
                     {getProductImage(product) ? (
-                      <img
-                        src={getProductImage(product)}
-                        alt={product.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
+                      <motion.div
+                        className="w-full h-full flex items-center justify-center"
+                        whileHover={{ rotate: 360 }}
+                        transition={{ duration: 0.8, ease: "easeInOut" }}
+                      >
+                        <img
+                          src={getProductImage(product)}
+                          alt={product.name}
+                          className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
+                        />
+                      </motion.div>
                     ) : (
                       <div className="flex items-center justify-center h-full">
                         <span className="text-8xl group-hover:scale-110 transition-transform">🦷</span>
@@ -181,23 +187,40 @@ export default function AccessoriesPreview() {
                   <p className="text-gray-600 mb-4 line-clamp-2">
                     {product.description}
                   </p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {product.discountPrice && product.discountPrice < product.price ? (
-                        <>
-                          <span className="text-2xl font-bold text-primary-600">
-                            {product.discountPrice.toLocaleString('tr-TR')} ₺
-                          </span>
-                          <span className="text-lg text-gray-400 line-through">
-                            {product.price.toLocaleString('tr-TR')} ₺
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-2xl font-bold text-primary-600">
-                          {product.price.toLocaleString('tr-TR')} ₺
-                        </span>
-                      )}
+                  
+                  {/* Stok Durumu */}
+                  {product.inStock === false && (
+                    <div className="mb-4">
+                      <span className="inline-block bg-red-100 text-red-600 px-3 py-1 rounded-lg text-sm font-medium">
+                        ⚠️ Stokta Yok
+                      </span>
                     </div>
+                  )}
+                  
+                  <div className="flex flex-col gap-3">
+                    <Link href={`/satın-al?urun=${product.id}`}>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        disabled={product.inStock === false}
+                        className={`w-full px-6 py-3 rounded-lg font-semibold transition-colors ${
+                          product.inStock === false
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-primary-600 text-white hover:bg-primary-700'
+                        }`}
+                      >
+                        {product.inStock === false ? 'Stokta Yok' : 'Şimdi Satın Alın'}
+                      </motion.button>
+                    </Link>
+                    <Link href={`/urunler/${product.id}`}>
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full px-6 py-3 rounded-lg font-semibold border-2 border-primary-600 text-primary-600 hover:bg-primary-50 transition-colors"
+                      >
+                        Daha Fazla Bilgi
+                      </motion.button>
+                    </Link>
                   </div>
                 </div>
               </motion.div>

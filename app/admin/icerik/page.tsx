@@ -47,7 +47,7 @@ interface SiteContent {
 export default function ContentManagementPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'hero' | 'features' | 'benefits' | 'cta' | 'about' | 'faq' | 'shipping' | 'return' | 'menu' | 'productsMenu' | 'accessories'>('hero')
+  const [activeTab, setActiveTab] = useState<'hero' | 'features' | 'benefits' | 'cta' | 'about' | 'faq' | 'shipping' | 'return' | 'productsMenu' | 'accessories' | 'contact'>('hero')
   
   // Yeni içerik state'leri
   const [aboutContent, setAboutContent] = useState<any>({
@@ -56,11 +56,6 @@ export default function ContentManagementPage() {
     storyTitle: '',
     storyParagraphs: [''],
     storyImage: ''
-  })
-  
-  const [menuContent, setMenuContent] = useState<any>({
-    buttonText: 'Keşfet',
-    categories: []
   })
   
   const [productsMenuContent, setProductsMenuContent] = useState<any>({
@@ -72,6 +67,16 @@ export default function ContentManagementPage() {
     subtitle: 'Diş fırçanız için uygun yedek başlıklar',
     buttonText: 'Tüm Yedek Başlıkları Görüntüle',
     buttonUrl: '/urunler?kategori=yedek-firca-basliklari'
+  })
+  
+  const [contactContent, setContactContent] = useState<any>({
+    title: 'İletişime Geçin',
+    subtitle: 'Sorularınız için bize ulaşın',
+    phone: '',
+    email: '',
+    address: '',
+    workingHours: '',
+    notificationEmail: '' // Mesajların gönderileceği e-posta
   })
   
   const [faqContent, setFaqContent] = useState<any>({
@@ -186,11 +191,6 @@ export default function ContentManagementPage() {
       }
       
       // Menu
-      const menuDoc = await getDoc(doc(db, 'siteContent', 'menu'))
-      if (menuDoc.exists()) {
-        setMenuContent(menuDoc.data())
-      }
-      
       // Products Menu
       const productsMenuDoc = await getDoc(doc(db, 'siteContent', 'productsMenu'))
       if (productsMenuDoc.exists()) {
@@ -202,6 +202,12 @@ export default function ContentManagementPage() {
       if (accessoriesDoc.exists()) {
         setAccessoriesContent(accessoriesDoc.data())
       }
+      
+      // Contact
+      const contactDoc = await getDoc(doc(db, 'siteContent', 'contact'))
+      if (contactDoc.exists()) {
+        setContactContent(contactDoc.data())
+      }
     } catch (error) {
       console.error('Content fetch error:', error)
     } finally {
@@ -209,7 +215,7 @@ export default function ContentManagementPage() {
     }
   }
 
-  const handleSave = async (section: 'hero' | 'benefits' | 'cta' | 'features' | 'about' | 'faq' | 'shipping' | 'return' | 'menu' | 'productsMenu' | 'accessories') => {
+  const handleSave = async (section: 'hero' | 'benefits' | 'cta' | 'features' | 'about' | 'faq' | 'shipping' | 'return' | 'productsMenu' | 'accessories' | 'contact') => {
     setSaving(true)
     try {
       const db = getFirestoreDB()
@@ -272,10 +278,6 @@ export default function ContentManagementPage() {
         const contentRef = doc(db, 'siteContent', 'return')
         await setDoc(contentRef, { ...returnContent, updatedAt: new Date().toISOString() }, { merge: true })
         console.log('✅ Return content saved')
-      } else if (section === 'menu') {
-        const contentRef = doc(db, 'siteContent', 'menu')
-        await setDoc(contentRef, { ...menuContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Menu content saved')
       } else if (section === 'productsMenu') {
         const contentRef = doc(db, 'siteContent', 'productsMenu')
         await setDoc(contentRef, { ...productsMenuContent, updatedAt: new Date().toISOString() }, { merge: true })
@@ -284,6 +286,10 @@ export default function ContentManagementPage() {
         const contentRef = doc(db, 'siteContent', 'accessories')
         await setDoc(contentRef, { ...accessoriesContent, updatedAt: new Date().toISOString() }, { merge: true })
         console.log('✅ Accessories content saved')
+      } else if (section === 'contact') {
+        const contentRef = doc(db, 'siteContent', 'contact')
+        await setDoc(contentRef, { ...contactContent, updatedAt: new Date().toISOString() }, { merge: true })
+        console.log('✅ Contact content saved')
       }
       
       // Broadcast mesajı gönder (diğer sekmelerdeki sayfalar için)
@@ -324,7 +330,7 @@ export default function ContentManagementPage() {
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
           <div className="flex border-b border-gray-200 overflow-x-auto">
-            {(['hero', 'features', 'benefits', 'cta', 'about', 'faq', 'shipping', 'return', 'menu', 'productsMenu', 'accessories'] as const).map((tab) => (
+            {(['hero', 'features', 'benefits', 'cta', 'about', 'faq', 'shipping', 'return', 'productsMenu', 'accessories', 'contact'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -342,9 +348,9 @@ export default function ContentManagementPage() {
                 {tab === 'faq' && 'SSS'}
                 {tab === 'shipping' && 'Kargo'}
                 {tab === 'return' && 'İade'}
-                {tab === 'menu' && 'Keşfet Menüsü'}
                 {tab === 'productsMenu' && 'Ürünler Menüsü'}
                 {tab === 'accessories' && 'Yedek Fırçalar'}
+                {tab === 'contact' && 'İletişim Bilgileri'}
               </button>
             ))}
           </div>
@@ -1382,160 +1388,6 @@ export default function ContentManagementPage() {
             </div>
           )}
 
-          {/* Menu Content */}
-          {activeTab === 'menu' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Menü Yönetimi</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Buton Metni</label>
-                  <input
-                    type="text"
-                    value={menuContent.buttonText || 'Keşfet'}
-                    onChange={(e) => setMenuContent({ ...menuContent, buttonText: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="Keşfet, İçerikler, vb."
-                  />
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-700">Kategoriler</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newCategories = [...(menuContent.categories || []), { title: '', items: [] }]
-                        setMenuContent({ ...menuContent, categories: newCategories })
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    >
-                      <FiPlus className="w-4 h-4" />
-                      Kategori Ekle
-                    </button>
-                  </div>
-                  
-                  {(menuContent.categories || []).map((category: any, catIndex: number) => (
-                    <div key={catIndex} className="border-2 border-gray-200 rounded-lg p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Kategori #{catIndex + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newCategories = menuContent.categories.filter((_: any, i: number) => i !== catIndex)
-                            setMenuContent({ ...menuContent, categories: newCategories })
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Kategori Başlığı</label>
-                        <input
-                          type="text"
-                          value={category.title || ''}
-                          onChange={(e) => {
-                            const newCategories = [...menuContent.categories]
-                            newCategories[catIndex] = { ...newCategories[catIndex], title: e.target.value }
-                            setMenuContent({ ...menuContent, categories: newCategories })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                          placeholder="Örn: İçerikler, Ağız Sağlığı, vb."
-                        />
-                      </div>
-                      
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-sm font-medium text-gray-700">Menü Öğeleri</label>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newCategories = [...menuContent.categories]
-                              newCategories[catIndex].items = [...(newCategories[catIndex].items || []), { title: '', url: '' }]
-                              setMenuContent({ ...menuContent, categories: newCategories })
-                            }}
-                            className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                          >
-                            <FiPlus className="w-3 h-3" />
-                            Öğe Ekle
-                          </button>
-                        </div>
-                        
-                        {(category.items || []).map((item: any, itemIndex: number) => (
-                          <div key={itemIndex} className="bg-gray-50 rounded-lg p-3 space-y-2 border border-gray-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-medium text-gray-600">Öğe #{itemIndex + 1}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newCategories = [...menuContent.categories]
-                                  newCategories[catIndex].items = newCategories[catIndex].items.filter((_: any, i: number) => i !== itemIndex)
-                                  setMenuContent({ ...menuContent, categories: newCategories })
-                                }}
-                                className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
-                              >
-                                <FiTrash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                            <div className="space-y-2">
-                              <input
-                                type="text"
-                                value={item.title || ''}
-                                onChange={(e) => {
-                                  const newCategories = [...menuContent.categories]
-                                  newCategories[catIndex].items[itemIndex] = { ...newCategories[catIndex].items[itemIndex], title: e.target.value }
-                                  setMenuContent({ ...menuContent, categories: newCategories })
-                                }}
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none text-sm"
-                                placeholder="Başlık (örn: Ürün Güvenliği)"
-                              />
-                              <input
-                                type="text"
-                                value={item.url || ''}
-                                onChange={(e) => {
-                                  const newCategories = [...menuContent.categories]
-                                  newCategories[catIndex].items[itemIndex] = { ...newCategories[catIndex].items[itemIndex], url: e.target.value }
-                                  setMenuContent({ ...menuContent, categories: newCategories })
-                                }}
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none text-sm"
-                                placeholder="/url (opsiyonel - boş bırakılabilir)"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                        
-                        {(category.items || []).length === 0 && (
-                          <div className="text-center py-4 text-gray-400 text-sm border-2 border-dashed border-gray-300 rounded-lg">
-                            Henüz öğe eklenmemiş. "Öğe Ekle" butonuna tıklayın.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {(menuContent.categories || []).length === 0 && (
-                    <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                      <p>Henüz kategori eklenmemiş. Yukarıdaki "Kategori Ekle" butonuna tıklayın.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('menu')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
           {/* Products Menu Content */}
           {activeTab === 'productsMenu' && (
             <div className="p-6 space-y-6">
@@ -1733,6 +1585,110 @@ export default function ContentManagementPage() {
               
               <motion.button
                 onClick={() => handleSave('accessories')}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                <FiSave className="w-5 h-5" />
+                {saving ? 'Kaydediliyor...' : 'Kaydet'}
+              </motion.button>
+            </div>
+          )}
+
+          {/* Contact Content */}
+          {activeTab === 'contact' && (
+            <div className="p-6 space-y-6">
+              <h2 className="text-xl font-semibold text-gray-900">İletişim Bilgileri</h2>
+              <p className="text-sm text-gray-600">Ana sayfadaki iletişim modalında gösterilecek bilgileri buradan yönetebilirsiniz.</p>
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Modal Başlığı</label>
+                  <input
+                    type="text"
+                    value={contactContent.title || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, title: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="İletişime Geçin"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
+                  <input
+                    type="text"
+                    value={contactContent.subtitle || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, subtitle: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="Sorularınız için bize ulaşın"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Telefon</label>
+                  <input
+                    type="tel"
+                    value={contactContent.phone || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, phone: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="+90 (212) 123 45 67"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">E-posta</label>
+                  <input
+                    type="email"
+                    value={contactContent.email || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, email: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="info@smilebrush.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Adres</label>
+                  <textarea
+                    rows={3}
+                    value={contactContent.address || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, address: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
+                    placeholder="İstanbul, Türkiye"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Çalışma Saatleri</label>
+                  <input
+                    type="text"
+                    value={contactContent.workingHours || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, workingHours: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="Pazartesi - Cuma: 09:00 - 18:00"
+                  />
+                </div>
+
+                <div className="border-t pt-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Bildirim E-posta Adresi <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Formdan gönderilen mesajlar bu e-posta adresine bildirim olarak gönderilecektir.
+                  </p>
+                  <input
+                    type="email"
+                    required
+                    value={contactContent.notificationEmail || ''}
+                    onChange={(e) => setContactContent({ ...contactContent, notificationEmail: e.target.value })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="admin@smilebrush.com"
+                  />
+                </div>
+              </div>
+              
+              <motion.button
+                onClick={() => handleSave('contact')}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 disabled={saving}

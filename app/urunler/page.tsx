@@ -195,13 +195,19 @@ export default function ProductsPage() {
               >
                 {/* Ürün Görseli - Oral-B tarzı büyük görsel */}
                 <Link href={`/urunler/${product.id}`}>
-                  <div className="relative bg-gradient-to-br from-gray-50 to-gray-100 aspect-square flex items-center justify-center overflow-hidden cursor-pointer group">
+                  <div className="relative bg-gradient-to-br from-gray-50 to-gray-100 aspect-[3/4] flex items-center justify-center overflow-hidden cursor-pointer group">
                     {getProductImage(product) ? (
-                      <img
-                        src={getProductImage(product)}
-                        alt={product.name}
-                        className="w-full h-full object-contain p-6 group-hover:scale-110 transition-transform duration-700"
-                      />
+                      <motion.div
+                        className="w-full h-full flex items-center justify-center p-6"
+                        whileHover={{ rotate: 360 }}
+                        transition={{ duration: 0.8, ease: "easeInOut" }}
+                      >
+                        <img
+                          src={getProductImage(product)}
+                          alt={product.name}
+                          className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700"
+                        />
+                      </motion.div>
                     ) : (
                       <div className="flex items-center justify-center h-full">
                         <span className="text-9xl opacity-20">🦷</span>

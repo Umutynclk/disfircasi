@@ -2,9 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { FiArrowRight, FiShoppingCart } from 'react-icons/fi'
+import { FiArrowRight } from 'react-icons/fi'
 import { useEffect, useState } from 'react'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 
 interface Product {
@@ -42,48 +42,34 @@ export default function ProductsPreview() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const db = getFirestoreDB()
-        const productsRef = collection(db, 'products')
-        const snapshot = await getDocs(productsRef)
-        const productsData = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as Product))
-          .filter(product => product.category === 'elektrikli-disfircasi' || !product.category)
-          .slice(0, 3) // İlk 3 ürünü göster
-        setProducts(productsData)
-      } catch (error) {
-        console.error('Ürünler yüklenirken hata:', error)
-        // Demo veriler göster
-        setProducts([
-          {
-            id: '1',
-            name: 'SmileBrush Pro',
-            price: 1299,
-            image: '',
-            description: 'Profesyonel seviye elektrikli diş fırçası'
-          },
-          {
-            id: '2',
-            name: 'SmileBrush Elite',
-            price: 899,
-            image: '',
-            description: 'Günlük kullanım için ideal çözüm'
-          },
-          {
-            id: '3',
-            name: 'SmileBrush Basic',
-            price: 599,
-            image: '',
-            description: 'Başlangıç seviyesi kullanıcılar için'
-          }
-        ])
-      } finally {
-        setLoading(false)
-      }
+    try {
+      const db = getFirestoreDB()
+      const productsRef = collection(db, 'products')
+      
+      // Real-time listener - Firebase değişikliklerini dinle
+      const unsubscribe = onSnapshot(
+        productsRef,
+        (snapshot) => {
+          const productsData = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as Product))
+            .filter(product => product.category === 'elektrikli-disfircasi' || !product.category)
+            .slice(0, 3) // İlk 3 ürünü göster
+          setProducts(productsData)
+          setLoading(false)
+          console.log('✅ Electric Toothbrushes loaded from Firebase:', productsData.length)
+        },
+        (error) => {
+          console.error('❌ Products fetch error:', error)
+          setProducts([])
+          setLoading(false)
+        }
+      )
+      
+      return () => unsubscribe()
+    } catch (error) {
+      console.error('❌ Products initialization error:', error)
+      setLoading(false)
     }
-
-    fetchProducts()
   }, [])
 
   return (
@@ -137,9 +123,15 @@ export default function ProductsPreview() {
                 className="group bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300"
               >
                 {/* Product Image */}
-                <div className="relative h-64 bg-gradient-to-br from-primary-100 to-primary-200 overflow-hidden">
+                <div className="relative aspect-[3/4] bg-gradient-to-br from-primary-100 to-primary-200 overflow-hidden">
                   {getProductImage(product) ? (
-                    <img src={getProductImage(product)} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    <motion.div
+                      className="w-full h-full flex items-center justify-center"
+                      whileHover={{ rotate: 360 }}
+                      transition={{ duration: 0.8, ease: "easeInOut" }}
+                    >
+                      <img src={getProductImage(product)} alt={product.name} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500" />
+                    </motion.div>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <span className="text-8xl">🦷</span>
@@ -167,27 +159,6 @@ export default function ProductsPreview() {
                   <h3 className="text-xl font-bold text-gray-900 mb-2">{product.name}</h3>
                   <p className="text-gray-600 mb-4 line-clamp-2">{product.description}</p>
                   
-                  {/* Fiyat */}
-                  <div className="mb-4">
-                    {product.discountPrice && product.discountPrice < product.price ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-bold text-primary-600">
-                          {product.discountPrice.toLocaleString('tr-TR')} ₺
-                        </span>
-                        <span className="text-sm text-gray-500 line-through">
-                          {product.price.toLocaleString('tr-TR')} ₺
-                        </span>
-                        <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">
-                          İndirimli Fiyat
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-2xl font-bold text-primary-600">
-                        {product.price.toLocaleString('tr-TR')} ₺
-                      </span>
-                    )}
-                  </div>
-                  
                   {/* Stok Durumu */}
                   {product.inStock === false && (
                     <div className="mb-4">
@@ -197,30 +168,30 @@ export default function ProductsPreview() {
                     </div>
                   )}
                   
-                  <div className="flex items-center justify-between">
-                    <Link href={`/urunler/${product.id}`}>
+                  <div className="flex flex-col gap-3">
+                    <Link href={`/satın-al?urun=${product.id}`}>
                       <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                         disabled={product.inStock === false}
-                        className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                        className={`w-full px-6 py-3 rounded-lg font-semibold transition-colors ${
                           product.inStock === false
                             ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                             : 'bg-primary-600 text-white hover:bg-primary-700'
                         }`}
                       >
-                        {product.inStock === false ? 'Stokta Yok' : 'Detaylı İncele'}
+                        {product.inStock === false ? 'Stokta Yok' : 'Şimdi Satın Alın'}
                       </motion.button>
                     </Link>
-                    {product.inStock !== false && (
+                    <Link href={`/urunler/${product.id}`}>
                       <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        className="p-3 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition-colors"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full px-6 py-3 rounded-lg font-semibold border-2 border-primary-600 text-primary-600 hover:bg-primary-50 transition-colors"
                       >
-                        <FiShoppingCart className="w-5 h-5" />
+                        Daha Fazla Bilgi
                       </motion.button>
-                    )}
+                    </Link>
                   </div>
                 </div>
               </motion.div>

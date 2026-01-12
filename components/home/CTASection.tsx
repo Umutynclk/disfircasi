@@ -6,6 +6,7 @@ import { getFirestoreDB } from '@/firebase/config'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { FiArrowRight } from 'react-icons/fi'
+import ContactModal from './ContactModal'
 
 interface CTAContent {
   ctaTitle?: string
@@ -17,6 +18,7 @@ interface CTAContent {
 export default function CTASection() {
   const [content, setContent] = useState<CTAContent | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false)
 
   useEffect(() => {
     try {
@@ -109,7 +111,7 @@ export default function CTASection() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             {content.ctaPrimaryButton && (
-              <Link href="/urunler">
+              <Link href="/satın-al">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -122,19 +124,24 @@ export default function CTASection() {
             )}
             
             {content.ctaSecondaryButton && (
-              <Link href="/iletisim">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="px-8 py-4 bg-transparent border-2 border-white text-white rounded-full font-semibold hover:bg-white/10 transition-colors"
-                >
-                  {content.ctaSecondaryButton}
-                </motion.button>
-              </Link>
+              <motion.button
+                onClick={() => setIsContactModalOpen(true)}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 bg-transparent border-2 border-white text-white rounded-full font-semibold hover:bg-white/10 transition-colors"
+              >
+                {content.ctaSecondaryButton}
+              </motion.button>
             )}
           </div>
         </motion.div>
       </div>
+
+      {/* Contact Modal */}
+      <ContactModal 
+        isOpen={isContactModalOpen} 
+        onClose={() => setIsContactModalOpen(false)} 
+      />
     </section>
   )
 }

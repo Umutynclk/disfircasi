@@ -6,6 +6,7 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import { motion } from 'framer-motion'
 import { FiShoppingCart, FiCheck, FiHeart, FiShare2 } from 'react-icons/fi'
+import Link from 'next/link'
 
 interface ColorOption {
   name: string
@@ -144,21 +145,27 @@ export default function ProductDetailPage() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-4"
           >
-            <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl">
-              {currentImages && currentImages[selectedImage] ? (
-                <img
-                  src={currentImages[selectedImage]}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <span className="text-9xl">🦷</span>
-                </div>
-              )}
+            <div className="relative">
+              <motion.div 
+                className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl"
+                whileHover={{ rotate: 360 }}
+                transition={{ duration: 0.8, ease: "easeInOut" }}
+              >
+                {currentImages && currentImages[selectedImage] ? (
+                  <img
+                    src={currentImages[selectedImage]}
+                    alt={product.name}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <span className="text-9xl">🦷</span>
+                  </div>
+                )}
+              </motion.div>
               {/* Stok Yok Overlay */}
               {product.inStock === false && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-2xl pointer-events-none">
                   <div className="bg-red-500 text-white px-6 py-3 rounded-lg font-semibold text-lg">
                     Stokta Yok
                   </div>
@@ -167,25 +174,27 @@ export default function ProductDetailPage() {
             </div>
             
             {currentImages && currentImages.length > 1 && (
-              <div className="grid grid-cols-4 gap-4">
-                {currentImages.map((image, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedImage(index)}
-                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all ${
-                      selectedImage === index
-                        ? 'border-primary-600 ring-2 ring-primary-200'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <img
-                      src={image}
-                      alt={`${product.name} ${index + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
+                    <div className="grid grid-cols-4 gap-4">
+                      {currentImages.map((image, index) => (
+                        <motion.button
+                          key={index}
+                          onClick={() => setSelectedImage(index)}
+                          whileHover={{ rotate: 360 }}
+                          transition={{ duration: 0.6, ease: "easeInOut" }}
+                          className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
+                            selectedImage === index
+                              ? 'border-primary-600 ring-2 ring-primary-200'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <img
+                            src={image}
+                            alt={`${product.name} ${index + 1}`}
+                            className="w-full h-full object-contain"
+                          />
+                        </motion.button>
+                      ))}
+                    </div>
             )}
 
             {product.video && (
@@ -347,19 +356,21 @@ export default function ProductDetailPage() {
             )}
 
             <div className="flex gap-4 pt-4">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={product.inStock === false}
-                className={`flex-1 px-8 py-4 rounded-full font-semibold flex items-center justify-center gap-3 transition-all ${
-                  product.inStock !== false
-                    ? 'bg-primary-600 text-white hover:bg-primary-700 shadow-lg hover:shadow-xl'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                <FiShoppingCart className="w-5 h-5" />
-                {product.inStock === false ? 'Stokta Yok' : 'Sepete Ekle'}
-              </motion.button>
+              <Link href={`/satın-al?urun=${product.id}`} className="flex-1">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  disabled={product.inStock === false}
+                  className={`w-full px-8 py-4 rounded-full font-semibold flex items-center justify-center gap-3 transition-all ${
+                    product.inStock !== false
+                      ? 'bg-primary-600 text-white hover:bg-primary-700 shadow-lg hover:shadow-xl'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  <FiShoppingCart className="w-5 h-5" />
+                  {product.inStock === false ? 'Stokta Yok' : 'Şimdi Satın Alın'}
+                </motion.button>
+              </Link>
               
               <motion.button
                 whileHover={{ scale: 1.1 }}
