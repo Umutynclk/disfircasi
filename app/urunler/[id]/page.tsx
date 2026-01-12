@@ -145,17 +145,22 @@ export default function ProductDetailPage() {
             animate={{ opacity: 1, x: 0 }}
             className="space-y-4"
           >
-            <div className="relative">
+            <div className="relative" style={{ perspective: '1000px' }}>
               <motion.div 
                 className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl"
-                whileHover={{ rotate: 360 }}
-                transition={{ duration: 0.8, ease: "easeInOut" }}
+                whileHover={{ 
+                  rotateY: 15,
+                  rotateX: -5,
+                  scale: 1.02
+                }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                style={{ transformStyle: 'preserve-3d' }}
               >
                 {currentImages && currentImages[selectedImage] ? (
                   <img
                     src={currentImages[selectedImage]}
                     alt={product.name}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain transition-transform duration-300"
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full">
@@ -179,13 +184,17 @@ export default function ProductDetailPage() {
                         <motion.button
                           key={index}
                           onClick={() => setSelectedImage(index)}
-                          whileHover={{ rotate: 360 }}
-                          transition={{ duration: 0.6, ease: "easeInOut" }}
+                          whileHover={{ 
+                            rotateY: 10,
+                            scale: 1.05
+                          }}
+                          transition={{ duration: 0.2, ease: "easeOut" }}
                           className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all ${
                             selectedImage === index
                               ? 'border-primary-600 ring-2 ring-primary-200'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
+                          style={{ transformStyle: 'preserve-3d', perspective: '500px' }}
                         >
                           <img
                             src={image}

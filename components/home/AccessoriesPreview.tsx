@@ -146,13 +146,19 @@ export default function AccessoriesPreview() {
                     {getProductImage(product) ? (
                       <motion.div
                         className="w-full h-full flex items-center justify-center"
-                        whileHover={{ rotate: 360 }}
-                        transition={{ duration: 0.8, ease: "easeInOut" }}
+                        style={{ perspective: '1000px' }}
+                        whileHover={{ 
+                          rotateY: 15,
+                          rotateX: -5,
+                          scale: 1.05
+                        }}
+                        transition={{ duration: 0.3, ease: "easeOut" }}
                       >
                         <img
                           src={getProductImage(product)}
                           alt={product.name}
-                          className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
+                          className="w-full h-full object-contain transition-transform duration-300"
+                          style={{ transformStyle: 'preserve-3d' }}
                         />
                       </motion.div>
                     ) : (
