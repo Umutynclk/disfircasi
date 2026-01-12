@@ -198,7 +198,7 @@ export default function AccessoriesPreview() {
                   )}
                   
                   <div className="flex flex-col gap-3">
-                    <Link href={`/satın-al?urun=${product.id}`}>
+                    <Link href={`/satin-al?urun=${product.id}`}>
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}

@@ -111,7 +111,7 @@ export default function CTASection() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             {content.ctaPrimaryButton && (
-              <Link href="/satın-al">
+              <Link href="/satin-al">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}

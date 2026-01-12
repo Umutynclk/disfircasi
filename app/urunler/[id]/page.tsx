@@ -356,7 +356,7 @@ export default function ProductDetailPage() {
             )}
 
             <div className="flex gap-4 pt-4">
-              <Link href={`/satın-al?urun=${product.id}`} className="flex-1">
+              <Link href={`/satin-al?urun=${product.id}`} className="flex-1">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}

@@ -161,7 +161,7 @@ export default function HeroSection() {
               className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start"
             >
               {content.primaryButton && (
-                <Link href="/satın-al">
+                <Link href="/satin-al">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}

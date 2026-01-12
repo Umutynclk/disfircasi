@@ -102,7 +102,7 @@ function CheckoutContent() {
 
   if (loading) {
     return (
-      <div className="pt-32 pb-20 bg-white min-h-screen">
+      <div className="pt-32 pb-20 bg-gradient-to-b from-white to-gray-50 min-h-screen">
         <div className="container-custom section-padding">
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
@@ -114,7 +114,7 @@ function CheckoutContent() {
 
   if (!product) {
     return (
-      <div className="pt-32 pb-20 bg-white min-h-screen">
+      <div className="pt-32 pb-20 bg-gradient-to-b from-white to-gray-50 min-h-screen">
         <div className="container-custom section-padding">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-gray-900 mb-4">Ürün bulunamadı</h1>
@@ -375,7 +375,7 @@ function CheckoutContent() {
 export default function CheckoutPage() {
   return (
     <Suspense fallback={
-      <div className="pt-32 pb-20 bg-white min-h-screen">
+      <div className="pt-32 pb-20 bg-gradient-to-b from-white to-gray-50 min-h-screen">
         <div className="container-custom section-padding">
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
