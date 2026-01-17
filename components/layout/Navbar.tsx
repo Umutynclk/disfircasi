@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiMenu, FiX, FiShoppingCart, FiChevronDown, FiUser } from 'react-icons/fi'
 import { getCurrentUser, logoutUser, onUserAuthStateChanged } from '@/lib/firebase/userAuth'
+import { getCartItemCount } from '@/lib/utils/cart'
 
 interface SiteSettings {
   siteName?: string
@@ -15,6 +17,7 @@ interface SiteSettings {
 
 
 export default function Navbar() {
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [siteName, setSiteName] = useState('SmileBrush')
@@ -23,6 +26,7 @@ export default function Navbar() {
   const [productsMenuContent, setProductsMenuContent] = useState<any>(null)
   const [user, setUser] = useState<any>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [cartItemCount, setCartItemCount] = useState(0)
 
   useEffect(() => {
     const handleScroll = () => {
@@ -92,6 +96,20 @@ export default function Navbar() {
       return () => unsubscribe()
     } catch (error) {
       console.error('❌ Products menu initialization error:', error)
+    }
+  }, [])
+
+  // Sepet sayısını dinle
+  useEffect(() => {
+    const updateCartCount = () => {
+      setCartItemCount(getCartItemCount())
+    }
+    
+    updateCartCount()
+    window.addEventListener('cartUpdated', updateCartCount)
+    
+    return () => {
+      window.removeEventListener('cartUpdated', updateCartCount)
     }
   }, [])
 
@@ -216,17 +234,17 @@ export default function Navbar() {
               İletişim
             </Link>
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => {
-                  // Sepet modalını aç (basit bir alert şimdilik)
-                  alert('Sepet özelliği yakında eklenecek!')
-                }}
+              <Link
+                href="/sepet"
                 className="p-2 rounded-full hover:bg-gray-100 transition-colors relative"
               >
                 <FiShoppingCart className="w-5 h-5" />
-                {/* Sepet sayısı badge'i (opsiyonel) */}
-                {/* <span className="absolute top-0 right-0 w-4 h-4 bg-primary-600 text-white text-xs rounded-full flex items-center justify-center">0</span> */}
-              </button>
+                {cartItemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary-600 text-white text-xs rounded-full flex items-center justify-center font-semibold">
+                    {cartItemCount > 99 ? '99+' : cartItemCount}
+                  </span>
+                )}
+              </Link>
               
               {/* Kullanıcı Menüsü */}
               <div className="relative">

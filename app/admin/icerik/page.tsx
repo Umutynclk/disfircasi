@@ -15,6 +15,9 @@ interface HeroContent {
   primaryButton: string
   secondaryButton: string
   image?: string
+  images?: string[] // Çoklu görseller için
+  video?: string // Video için
+  sliderInterval?: number // Slider geçiş süresi (saniye)
 }
 
 interface Feature {
@@ -88,7 +91,8 @@ export default function ContentManagementPage() {
   const [shippingContent, setShippingContent] = useState<any>({
     title: '',
     subtitle: '',
-    sections: []
+    sections: [],
+    shippingFee: 0 // Kargo ücreti
   })
   
   const [returnContent, setReturnContent] = useState<any>({
@@ -452,9 +456,175 @@ export default function ContentManagementPage() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Slider Geçiş Süresi (Saniye)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="30"
+                    value={content.hero.sliderInterval || 5}
+                    onChange={(e) => setContent(prev => ({
+                      ...prev,
+                      hero: { ...prev.hero, sliderInterval: parseInt(e.target.value) || 5 }
+                    }))}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="5"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Çoklu görseller arasındaki geçiş süresi (1-30 saniye arası). Varsayılan: 5 saniye
+                  </p>
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hero Görseli (Fotoğraf veya Video)
+                    Hero Video (Video İzle butonu için)
+                  </label>
+                  <div className="space-y-4">
+                    {content.hero.video && (
+                      <div className="relative w-full h-48 rounded-lg overflow-hidden border-2 border-gray-200">
+                        <video
+                          src={content.hero.video}
+                          className="w-full h-full object-cover"
+                          controls
+                        />
+                        <button
+                          onClick={() => setContent(prev => ({
+                            ...prev,
+                            hero: { ...prev.hero, video: '' }
+                          }))}
+                          className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          <FiTrash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        
+                        try {
+                          setSaving(true)
+                          const { uploadVideo } = await import('@/lib/firebase/storage')
+                          const url = await uploadVideo(file, 'hero')
+                          
+                          setContent(prev => ({
+                            ...prev,
+                            hero: { ...prev.hero, video: url }
+                          }))
+                          alert('Video başarıyla yüklendi!')
+                        } catch (error: any) {
+                          console.error('Video yükleme hatası:', error)
+                          alert(`Video yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
+                        } finally {
+                          setSaving(false)
+                        }
+                        
+                        e.target.value = ''
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                      disabled={saving}
+                    />
+                    <p className="text-sm text-gray-500">
+                      Video yükleyebilirsiniz (MP4, WebM)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Hero Görselleri (Çoklu Fotoğraf/Video - Slider için)
+                  </label>
+                  <div className="space-y-4">
+                    {content.hero.images && content.hero.images.length > 0 && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {content.hero.images.map((img, index) => (
+                          <div key={index} className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-gray-200">
+                            {img.endsWith('.mp4') || img.endsWith('.webm') || img.includes('video') || (img.includes('firebasestorage') && img.includes('videos')) ? (
+                              <video
+                                src={img}
+                                className="w-full h-full object-cover"
+                                muted
+                              />
+                            ) : (
+                              <img
+                                src={img}
+                                alt={`Hero ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                            <button
+                              onClick={() => {
+                                const newImages = content.hero.images?.filter((_, i) => i !== index) || []
+                                setContent(prev => ({
+                                  ...prev,
+                                  hero: { ...prev.hero, images: newImages }
+                                }))
+                              }}
+                              className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                            >
+                              <FiTrash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || [])
+                        if (files.length === 0) return
+                        
+                        try {
+                          setSaving(true)
+                          const { uploadImage, uploadVideo } = await import('@/lib/firebase/storage')
+                          const uploadPromises = files.map(async (file) => {
+                            if (file.type.startsWith('image/')) {
+                              return await uploadImage(file, 'hero')
+                            } else if (file.type.startsWith('video/')) {
+                              return await uploadVideo(file, 'hero')
+                            }
+                            return ''
+                          })
+                          
+                          const urls = await Promise.all(uploadPromises)
+                          const validUrls = urls.filter(url => url !== '')
+                          
+                          setContent(prev => ({
+                            ...prev,
+                            hero: { 
+                              ...prev.hero, 
+                              images: [...(prev.hero.images || []), ...validUrls]
+                            }
+                          }))
+                          alert(`${validUrls.length} görsel/video başarıyla yüklendi!`)
+                        } catch (error: any) {
+                          console.error('Görsel yükleme hatası:', error)
+                          alert(`Görsel yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
+                        } finally {
+                          setSaving(false)
+                        }
+                        
+                        e.target.value = ''
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                      disabled={saving}
+                    />
+                    <p className="text-sm text-gray-500">
+                      Birden fazla fotoğraf veya video yükleyebilirsiniz (JPG, PNG, GIF, MP4, WebM). Slider olarak gösterilecektir.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Hero Görseli (Tek Görsel - Eski Yöntem - Opsiyonel)
                   </label>
                   <div className="space-y-4">
                     {content.hero.image && (
@@ -477,21 +647,15 @@ export default function ContentManagementPage() {
                     )}
                     <input
                       type="file"
-                      accept="image/*,video/*"
+                      accept="image/*"
                       onChange={async (e) => {
                         const file = e.target.files?.[0]
                         if (!file) return
                         
                         try {
                           setSaving(true)
-                          const { uploadImage, uploadVideo } = await import('@/lib/firebase/storage')
-                          let url = ''
-                          
-                          if (file.type.startsWith('image/')) {
-                            url = await uploadImage(file, 'hero')
-                          } else if (file.type.startsWith('video/')) {
-                            url = await uploadVideo(file, 'hero')
-                          }
+                          const { uploadImage } = await import('@/lib/firebase/storage')
+                          const url = await uploadImage(file, 'hero')
                           
                           setContent(prev => ({
                             ...prev,
@@ -505,14 +669,13 @@ export default function ContentManagementPage() {
                           setSaving(false)
                         }
                         
-                        // Reset input
                         e.target.value = ''
                       }}
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
                       disabled={saving}
                     />
                     <p className="text-sm text-gray-500">
-                      Fotoğraf veya video yükleyebilirsiniz (JPG, PNG, GIF, MP4, WebM)
+                      Tek bir fotoğraf yükleyebilirsiniz (JPG, PNG, GIF). Çoklu görseller için yukarıdaki alanı kullanın.
                     </p>
                   </div>
                 </div>
@@ -1113,6 +1276,24 @@ export default function ContentManagementPage() {
                     onChange={(e) => setShippingContent({ ...shippingContent, subtitle: e.target.value })}
                     className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
                   />
+                </div>
+                
+                <div className="bg-primary-50 border-2 border-primary-200 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Kargo Ücreti (₺) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={shippingContent.shippingFee || 0}
+                    onChange={(e) => setShippingContent({ ...shippingContent, shippingFee: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-600 mt-2">
+                    Satın al sayfasında gösterilecek kargo ücreti. 0 girerseniz "Ücretsiz Kargo" olarak gösterilir.
+                  </p>
                 </div>
                 
                 <div className="space-y-4">

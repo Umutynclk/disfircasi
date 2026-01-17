@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { motion } from 'framer-motion'
-import { FiShoppingCart, FiCheck, FiHeart, FiShare2 } from 'react-icons/fi'
+import { motion, AnimatePresence } from 'framer-motion'
+import { FiShoppingCart, FiCheck, FiHeart, FiShare2, FiX } from 'react-icons/fi'
 import Link from 'next/link'
+import { addToCart } from '@/lib/utils/cart'
+import { getCurrentUser } from '@/lib/firebase/userAuth'
 
 interface ColorOption {
   name: string
@@ -35,6 +37,7 @@ interface Product {
 
 export default function ProductDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedImage, setSelectedImage] = useState(0)
@@ -42,6 +45,14 @@ export default function ProductDetailPage() {
   const [currentPrice, setCurrentPrice] = useState<number>(0)
   const [currentDiscountPrice, setCurrentDiscountPrice] = useState<number | null>(null)
   const [currentImages, setCurrentImages] = useState<string[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [addingToCart, setAddingToCart] = useState(false)
+
+  useEffect(() => {
+    // Kullanıcı kontrolü
+    getCurrentUser().then(setUser)
+  }, [])
 
   useEffect(() => {
     try {
@@ -91,6 +102,43 @@ export default function ProductDetailPage() {
       setLoading(false)
     }
   }, [params.id])
+
+  const handleAddToCart = async () => {
+    if (!product) return
+
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+
+    setAddingToCart(true)
+    try {
+      const finalPrice = selectedColor?.price || product.price
+      const finalDiscountPrice = selectedColor?.discountPrice || product.discountPrice
+
+      addToCart({
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        discountPrice: finalDiscountPrice,
+        image: currentImages[0] || product.image,
+        selectedColor: selectedColor ? {
+          name: selectedColor.name,
+          code: selectedColor.code,
+          price: selectedColor.price,
+          discountPrice: selectedColor.discountPrice
+        } : undefined
+      })
+
+      // Başarı mesajı
+      alert('Ürün sepete eklendi!')
+    } catch (error) {
+      console.error('Sepete ekleme hatası:', error)
+      alert('Ürün sepete eklenirken bir hata oluştu')
+    } finally {
+      setAddingToCart(false)
+    }
+  }
 
   // Renk seçildiğinde fiyat ve fotoğrafları güncelle
   useEffect(() => {
@@ -367,6 +415,21 @@ export default function ProductDetailPage() {
               </Link>
               
               <motion.button
+                onClick={handleAddToCart}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={product.inStock === false || addingToCart}
+                className={`flex-1 px-8 py-4 rounded-full font-semibold flex items-center justify-center gap-3 transition-all ${
+                  product.inStock !== false
+                    ? 'bg-white text-primary-600 border-2 border-primary-600 hover:bg-primary-50 shadow-lg hover:shadow-xl'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                <FiShoppingCart className="w-5 h-5" />
+                {addingToCart ? 'Ekleniyor...' : 'Sepete Ekle'}
+              </motion.button>
+              
+              <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 className="p-4 rounded-full border-2 border-gray-300 hover:border-primary-600 hover:bg-primary-50 transition-colors"
@@ -382,6 +445,94 @@ export default function ProductDetailPage() {
                 <FiShare2 className="w-5 h-5 text-gray-700" />
               </motion.button>
             </div>
+
+            {/* Auth Modal */}
+            <AnimatePresence>
+              {showAuthModal && (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setShowAuthModal(false)}
+                    className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+                  >
+                    <motion.div
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.9, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white rounded-2xl p-8 max-w-md w-full"
+                    >
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-2xl font-bold text-gray-900">Giriş Yapın</h3>
+                        <button
+                          onClick={() => setShowAuthModal(false)}
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          <FiX className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <p className="text-gray-600 mb-6">
+                        Sepete ürün eklemek için giriş yapmanız veya üye olmanız gerekmektedir.
+                      </p>
+
+                      <div className="space-y-3">
+                        <Link href="/giris" className="block">
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setShowAuthModal(false)}
+                            className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+                          >
+                            Giriş Yap / Üye Ol
+                          </motion.button>
+                        </Link>
+                        
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={async () => {
+                            setShowAuthModal(false)
+                            // Üye olmadan devam et - sepete ekle
+                            setAddingToCart(true)
+                            try {
+                              const finalPrice = selectedColor?.price || product!.price
+                              const finalDiscountPrice = selectedColor?.discountPrice || product!.discountPrice
+
+                              addToCart({
+                                productId: product!.id,
+                                name: product!.name,
+                                price: product!.price,
+                                discountPrice: finalDiscountPrice,
+                                image: currentImages[0] || product!.image,
+                                selectedColor: selectedColor ? {
+                                  name: selectedColor.name,
+                                  code: selectedColor.code,
+                                  price: selectedColor.price,
+                                  discountPrice: selectedColor.discountPrice
+                                } : undefined
+                              })
+
+                              alert('Ürün sepete eklendi!')
+                            } catch (error) {
+                              console.error('Sepete ekleme hatası:', error)
+                              alert('Ürün sepete eklenirken bir hata oluştu')
+                            } finally {
+                              setAddingToCart(false)
+                            }
+                          }}
+                          className="w-full px-6 py-3 bg-gray-100 text-gray-900 rounded-lg font-semibold hover:bg-gray-200 transition-colors"
+                        >
+                          Üye Olmadan Devam Et
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
           </motion.div>
         </div>
       </div>

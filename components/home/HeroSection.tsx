@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { FiArrowRight, FiPlay } from 'react-icons/fi'
+import { FiArrowRight, FiPlay, FiX, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
 
 interface HeroContent {
   badge?: string
@@ -15,11 +15,16 @@ interface HeroContent {
   primaryButton?: string
   secondaryButton?: string
   image?: string
+  images?: string[] // Çoklu görseller için
+  video?: string // Video için
+  sliderInterval?: number // Slider geçiş süresi (saniye)
 }
 
 export default function HeroSection() {
   const [content, setContent] = useState<HeroContent | null>(null)
   const [loading, setLoading] = useState(true)
+  const [videoModalOpen, setVideoModalOpen] = useState(false)
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
   useEffect(() => {
     try {
@@ -33,6 +38,7 @@ export default function HeroSection() {
           if (snapshot.exists()) {
             const data = snapshot.data() as HeroContent
             setContent(data)
+            setCurrentImageIndex(0) // Reset index when content changes
             console.log('✅ Hero content loaded/updated from Firebase:', data)
           } else {
             console.warn('⚠️ Hero content not found in Firebase. Please add content from admin panel.')
@@ -54,6 +60,17 @@ export default function HeroSection() {
       setLoading(false)
     }
   }, [])
+
+  // Auto-slide for images
+  useEffect(() => {
+    if (content?.images && content.images.length > 1) {
+      const intervalTime = (content.sliderInterval || 5) * 1000 // Varsayılan 5 saniye
+      const interval = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev === content.images!.length - 1 ? 0 : prev + 1))
+      }, intervalTime)
+      return () => clearInterval(interval)
+    }
+  }, [content?.images, content?.sliderInterval])
 
   // Loading state - Firebase'den veri yoksa boş göster
   if (loading) {
@@ -173,8 +190,9 @@ export default function HeroSection() {
                 </Link>
               )}
               
-              {content.secondaryButton && (
+              {content.secondaryButton && (content.video || (content.images && content.images.length > 0)) && (
                 <motion.button
+                  onClick={() => setVideoModalOpen(true)}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="px-8 py-4 bg-white text-gray-900 rounded-full font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transition-shadow border-2 border-gray-200"
@@ -194,8 +212,75 @@ export default function HeroSection() {
             className="relative"
           >
             <div className="relative w-full h-[500px] lg:h-[600px]">
-              {content.image ? (
-                content.image.endsWith('.mp4') || content.image.endsWith('.webm') || content.image.includes('video') || content.image.includes('firebasestorage') && content.image.includes('videos') ? (
+              {/* Çoklu görseller varsa slider göster */}
+              {content.images && content.images.length > 0 ? (
+                <>
+                  <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-2xl">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={currentImageIndex}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="absolute inset-0"
+                      >
+                        {content.images[currentImageIndex].endsWith('.mp4') || 
+                         content.images[currentImageIndex].endsWith('.webm') || 
+                         content.images[currentImageIndex].includes('video') || 
+                         (content.images[currentImageIndex].includes('firebasestorage') && content.images[currentImageIndex].includes('videos')) ? (
+                          <video
+                            src={content.images[currentImageIndex]}
+                            className="w-full h-full object-cover"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img
+                            src={content.images[currentImageIndex]}
+                            alt={`${content.title || 'Hero'} ${currentImageIndex + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                    
+                    {/* Navigation buttons */}
+                    {content.images.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? content.images!.length - 1 : prev - 1))}
+                          className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/90 hover:bg-white rounded-full shadow-lg transition-all z-10"
+                        >
+                          <FiChevronLeft className="w-6 h-6 text-gray-900" />
+                        </button>
+                        <button
+                          onClick={() => setCurrentImageIndex((prev) => (prev === content.images!.length - 1 ? 0 : prev + 1))}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/90 hover:bg-white rounded-full shadow-lg transition-all z-10"
+                        >
+                          <FiChevronRight className="w-6 h-6 text-gray-900" />
+                        </button>
+                        
+                        {/* Dots indicator */}
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                          {content.images.map((_, index) => (
+                            <button
+                              key={index}
+                              onClick={() => setCurrentImageIndex(index)}
+                              className={`w-2 h-2 rounded-full transition-all ${
+                                currentImageIndex === index ? 'bg-white w-8' : 'bg-white/50'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : content.image ? (
+                content.image.endsWith('.mp4') || content.image.endsWith('.webm') || content.image.includes('video') || (content.image.includes('firebasestorage') && content.image.includes('videos')) ? (
                   <video
                     src={content.image}
                     className="absolute inset-0 w-full h-full object-cover rounded-3xl shadow-2xl"
@@ -245,6 +330,92 @@ export default function HeroSection() {
           />
         </div>
       </motion.div>
+
+      {/* Video Modal */}
+      <AnimatePresence>
+        {videoModalOpen && (content.video || (content.images && content.images.length > 0)) && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setVideoModalOpen(false)}
+              className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative w-full max-w-4xl bg-black rounded-2xl overflow-hidden"
+              >
+                <button
+                  onClick={() => setVideoModalOpen(false)}
+                  className="absolute top-4 right-4 z-10 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                >
+                  <FiX className="w-6 h-6 text-white" />
+                </button>
+                
+                {content.video ? (
+                  <video
+                    src={content.video}
+                    controls
+                    autoPlay
+                    className="w-full h-auto"
+                  />
+                ) : content.images && content.images.length > 0 ? (
+                  <div className="relative">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={currentImageIndex}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="relative"
+                      >
+                        {content.images[currentImageIndex].endsWith('.mp4') || 
+                         content.images[currentImageIndex].endsWith('.webm') || 
+                         content.images[currentImageIndex].includes('video') || 
+                         (content.images[currentImageIndex].includes('firebasestorage') && content.images[currentImageIndex].includes('videos')) ? (
+                          <video
+                            src={content.images[currentImageIndex]}
+                            controls
+                            autoPlay
+                            className="w-full h-auto"
+                          />
+                        ) : (
+                          <img
+                            src={content.images[currentImageIndex]}
+                            alt={`${content.title || 'Hero'} ${currentImageIndex + 1}`}
+                            className="w-full h-auto"
+                          />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                    
+                    {content.images.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? content.images!.length - 1 : prev - 1))}
+                          className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/90 hover:bg-white rounded-full shadow-lg transition-all z-10"
+                        >
+                          <FiChevronLeft className="w-6 h-6 text-gray-900" />
+                        </button>
+                        <button
+                          onClick={() => setCurrentImageIndex((prev) => (prev === content.images!.length - 1 ? 0 : prev + 1))}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/90 hover:bg-white rounded-full shadow-lg transition-all z-10"
+                        >
+                          <FiChevronRight className="w-6 h-6 text-gray-900" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </section>
   )
 }
