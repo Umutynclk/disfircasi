@@ -1,28 +1,47 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Production build için optimize edildi
-  output: 'standalone', // Vercel, Docker vb. için optimize edilmiş build
-  
+  output: 'standalone',
+
   images: {
-    unoptimized: false, // Production'da image optimization aktif
-    domains: ["firebasestorage.googleapis.com"],
+    unoptimized: false,
+    domains: ['firebasestorage.googleapis.com'],
     remotePatterns: [
       {
-        protocol: "https",
-        hostname: "firebasestorage.googleapis.com",
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
       },
       {
-        protocol: "https",
-        hostname: "**.firebasestorage.googleapis.com",
+        protocol: 'https',
+        hostname: '**.firebasestorage.googleapis.com',
       },
     ],
   },
-  
-  // Production optimizations
+
   compress: true,
   poweredByHeader: false,
-  
-  // Environment variables
+
+  // 🔴 EN KRİTİK KISIM – CACHE ve HYDRATION PROBLEMLERİNİ BİTİRİR
+  experimental: {
+    staleTimes: {
+      dynamic: 0,
+      static: 0,
+    },
+  },
+
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+        ],
+      },
+    ];
+  },
+
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,
   },
