@@ -4,11 +4,32 @@
 
 @layer base {
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+  }
+  
+  html.lenis, html.lenis body {
+    height: auto;
+  }
+
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+
+  .lenis.lenis-smooth iframe {
+    pointer-events: none;
   }
   
   body {
-    @apply bg-white text-gray-900 antialiased;
+    @apply bg-white text-gray-900 antialiased selection:bg-brand-blue selection:text-white;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
@@ -18,20 +39,86 @@
   }
   
   .section-padding {
-    @apply px-4 sm:px-6 lg:px-8;
+    @apply px-4 sm:px-6 lg:px-12;
   }
   
   .container-custom {
     @apply max-w-7xl mx-auto;
   }
+
+  /* Glassmorphism Styles */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+
+  .glass-card-dark {
+    background: rgba(8, 43, 104, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .glass-nav {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  }
+
+  /* 3D Glow and Radial Gradients */
+  .hero-gradient {
+    background: radial-gradient(circle at 50% 30%, rgba(8, 120, 255, 0.15) 0%, rgba(19, 184, 58, 0.08) 35%, rgba(255, 255, 255, 0) 70%);
+  }
+
+  .blue-glow {
+    box-shadow: 0 0 50px -10px rgba(8, 120, 255, 0.3);
+  }
+
+  .green-glow {
+    box-shadow: 0 0 50px -10px rgba(19, 184, 58, 0.3);
+  }
+
+  .text-gradient-brand {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-blue via-cyan-500 to-brand-green;
+  }
+
+  .text-gradient-dark {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-navy via-brand-blue to-gray-900;
+  }
 }
 
-/* Apple.com benzeri yumuşak geçişler için */
+/* Premium Standardized Button System */
+@layer components {
+  .btn-primary {
+    @apply relative inline-flex items-center justify-center font-bold text-white bg-gradient-to-r from-brand-blue via-[#0c8aff] to-brand-green rounded-full shadow-md shadow-brand-blue/25 hover:shadow-xl hover:shadow-brand-blue/35 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 cursor-pointer;
+  }
+
+  .btn-secondary {
+    @apply relative inline-flex items-center justify-center font-bold text-brand-navy bg-white border border-slate-200/90 rounded-full shadow-xs hover:bg-slate-50 hover:border-brand-blue/30 hover:text-brand-blue hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 cursor-pointer;
+  }
+
+  .btn-ghost {
+    @apply relative inline-flex items-center justify-center font-semibold text-slate-700 bg-transparent rounded-full hover:bg-brand-softBlue/70 hover:text-brand-blue active:scale-[0.98] transition-all duration-200 focus:outline-none cursor-pointer;
+  }
+}
+
+/* 3D Perspective & Canvas Wrappers */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
 .smooth-transition {
-  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Scroll animasyonları için */
+/* Scroll reveal helpers */
 .scroll-reveal {
   opacity: 0;
   transform: translateY(30px);
@@ -43,7 +130,7 @@
   transform: translateY(0);
 }
 
-/* Custom scrollbar for menu */
+/* Custom scrollbar for menu & page */
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -55,12 +142,13 @@
   }
   
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #93c5fd;
+    background: #0878FF;
     border-radius: 10px;
   }
   
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #60a5fa;
+    background: #0284c7;
   }
 }
+
 

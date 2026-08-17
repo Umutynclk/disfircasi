@@ -8,8 +8,24 @@ import CookieProvider from '@/components/providers/CookieProvider'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Elektrikli Diş Fırçası | Premium Bakım',
-  description: 'Modern elektrikli diş fırçası çözümleri ile gülüşünüzü parlatın',
+  title: {
+    default: 'GÜLÜMSE | 360° Sonic Diş Fırçası & Ağız Bakımı',
+    template: '%s | GÜLÜMSE Dental Care',
+  },
+  description: 'Yeni nesil 360° sonic otomatik diş fırçaları ve kullan-at hijyenik diş fırçalarıyla gülüşünüzü parlatın. Klinik onaylı, 2 yıl garantili premium ağız bakım ürünleri.',
+  keywords: ['diş fırçası', 'sonic diş fırçası', 'otomatik diş fırçası', 'kullan at diş fırçası', 'ağız bakımı', 'dental care', 'gülümse'],
+  authors: [{ name: 'GÜLÜMSE Dental Care' }],
+  openGraph: {
+    title: 'GÜLÜMSE | 360° Sonic Diş Fırçası & Ağız Bakımı',
+    description: 'Yeni nesil sonic otomatik diş fırçaları ve kullan-at hijyenik ürünlerle premium ağız bakımı.',
+    type: 'website',
+    locale: 'tr_TR',
+    siteName: 'GÜLÜMSE',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 }
 
 export default function RootLayout({

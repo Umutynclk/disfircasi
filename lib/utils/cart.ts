@@ -52,6 +52,9 @@ export const addToCart = (item: Omit<CartItem, 'id' | 'quantity'>): CartItem => 
     // Ürün zaten sepette, miktarı artır
     cart[existingItemIndex].quantity += 1
     saveCart(cart)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('openCartDrawer'))
+    }
     return cart[existingItemIndex]
   } else {
     // Yeni ürün ekle
@@ -62,6 +65,9 @@ export const addToCart = (item: Omit<CartItem, 'id' | 'quantity'>): CartItem => 
     }
     cart.push(newItem)
     saveCart(cart)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('openCartDrawer'))
+    }
     return newItem
   }
 }

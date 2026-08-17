@@ -1,315 +1,337 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { doc, getDoc, setDoc, collection, getDocs, deleteDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { motion } from 'framer-motion'
-import { FiSave, FiPlus, FiTrash2, FiEdit, FiImage, FiX } from 'react-icons/fi'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  FiSave, FiImage, FiPlus, FiTrash2, FiCheck, FiCopy,
+  FiArrowUp, FiArrowDown, FiEye, FiEyeOff, FiEdit3,
+  FiLayout, FiLayers, FiGrid, FiCompass, FiShield,
+  FiHelpCircle, FiTruck, FiRotateCcw, FiPhone, FiInfo, FiStar, FiUpload
+} from 'react-icons/fi'
 import { uploadImage } from '@/lib/firebase/storage'
+import { DynamicSectionItem, DynamicSectionConfig, saveSectionData } from '@/lib/firebase/content'
+import MediaPickerModal from '@/components/admin/MediaPickerModal'
 
-interface HeroContent {
-  badge: string
-  title: string
-  titleHighlight: string
-  description: string
-  primaryButton: string
-  secondaryButton: string
-  image?: string
-  images?: string[] // Çoklu görseller için
-  video?: string // Video için
-  sliderInterval?: number // Slider geçiş süresi (saniye)
-}
+type ContentTab =
+  | 'stories'
+  | 'hero'
+  | 'categories'
+  | 'benefits'
+  | 'cta'
+  | 'productShowcase'
+  | 'about'
+  | 'faq'
+  | 'shipping'
+  | 'return'
+  | 'contact'
 
-interface Feature {
-  id: string
-  icon: string
-  title: string
-  description: string
-  color: string
-}
-
-interface Benefit {
-  title: string
-  description: string
-  benefits: string[]
-  image?: string
-}
-
-interface SiteContent {
-  hero: HeroContent
-  features: Feature[]
-  benefits: Benefit
-  cta: {
-    ctaTitle: string
-    ctaDescription: string
-    ctaPrimaryButton: string
-    ctaSecondaryButton: string
-  }
-}
-
-export default function ContentManagementPage() {
+export default function ContentStudioPage() {
+  const [activeTab, setActiveTab] = useState<ContentTab>('stories')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'hero' | 'features' | 'benefits' | 'cta' | 'about' | 'faq' | 'shipping' | 'return' | 'productsMenu' | 'accessories' | 'contact'>('hero')
-  
-  // Yeni içerik state'leri
-  const [aboutContent, setAboutContent] = useState<any>({
-    title: '',
-    subtitle: '',
-    storyTitle: '',
-    storyParagraphs: [''],
-    storyImage: ''
-  })
-  
-  const [productsMenuContent, setProductsMenuContent] = useState<any>({
-    sections: []
-  })
-  
-  const [accessoriesContent, setAccessoriesContent] = useState<any>({
-    title: 'Yedek Fırça Başlıkları',
-    subtitle: 'Diş fırçanız için uygun yedek başlıklar',
-    buttonText: 'Tüm Yedek Başlıkları Görüntüle',
-    buttonUrl: '/urunler?kategori=yedek-firca-basliklari'
-  })
-  
-  const [contactContent, setContactContent] = useState<any>({
-    title: 'İletişime Geçin',
-    subtitle: 'Sorularınız için bize ulaşın',
-    phone: '',
-    email: '',
-    address: '',
-    workingHours: '',
-    notificationEmail: '' // Mesajların gönderileceği e-posta
-  })
-  
-  const [faqContent, setFaqContent] = useState<any>({
-    title: '',
-    subtitle: '',
-    items: []
-  })
-  
-  const [shippingContent, setShippingContent] = useState<any>({
-    title: '',
-    subtitle: '',
-    sections: [],
-    shippingFee: 0 // Kargo ücreti
-  })
-  
-  const [returnContent, setReturnContent] = useState<any>({
-    title: '',
-    subtitle: '',
-    sections: []
-  })
-  
-  const [content, setContent] = useState<SiteContent>({
-    hero: {
-      badge: '🦷 Premium Diş Bakımı',
-      title: 'Gülüşünüzü',
-      titleHighlight: 'Parlatın',
-      description: 'Modern teknoloji ile donatılmış elektrikli diş fırçaları ile profesyonel seviyede diş bakımı.',
-      primaryButton: 'Ürünleri Keşfet',
-      secondaryButton: 'Video İzle'
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
+
+  // Media Picker state
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false)
+  const [mediaPickerTarget, setMediaPickerTarget] = useState<((url: string) => void) | null>(null)
+
+  // 1. UNLIMITED EDITORIAL STORIES
+  const [stories, setStories] = useState<DynamicSectionItem[]>([
+    {
+      id: 'story_1',
+      badge: 'Her 3 Ayda Bir Yenileyin',
+      subtitle: 'Ağız Sağlığı Rutini',
+      title: 'Fırçanı Düzenli Yenile, Maksimum Koruma Sağla.',
+      description: 'Diş hekimleri, optimum plak temizliği ve bakteri birikimini önlemek için fırça başlıklarının en geç 3 ayda bir yenilenmesini tavsiye ediyor. Gülümse yedek başlıkları ile her zaman ilk günkü hijyeni koruyun.',
+      bullets: ['%99.8 Plak Temizleme Verimi', 'Kolay Geçmeli Uyumlu Başlık', 'Bakteri Tutmayan Medikal Silikon'],
+      ctaText: 'Yedek Başlıkları İncele',
+      ctaUrl: '/urunler?kategori=yedek-firca-basliklari',
+      image: '',
+      order: 1,
+      active: true,
     },
-    features: [],
-    benefits: {
-      title: 'Sağlıklı Gülüşün Sırrı',
-      description: 'Elektrikli diş fırçalarımız ile günlük diş bakımınızı bir üst seviyeye taşıyın.',
-      benefits: []
+    {
+      id: 'story_2',
+      badge: 'Klinik Hassasiyet',
+      subtitle: 'Nazik & Etkili Bakım',
+      title: 'Hassas Diş Etlerine Özel Yumuşak Dokunuş.',
+      description: 'Mikro incelikteki medikal fırça kılları, diş minenizi çizmeden ve diş etlerinize baskı yapmadan en zorlu aralıklara kadar ulaşır. Günlük kullanımda ferah ve acısız temizlik sağlar.',
+      bullets: ['Hassas Diş Eti Dostu Yumuşak Kıllar', 'BPA İçermeyen Güvenli Malzeme', 'Diş Minesini Koruyan Mikro Titreşim'],
+      ctaText: 'Hassas Seri Ürünleri Keşfet',
+      ctaUrl: '/urunler',
+      image: '',
+      order: 2,
+      active: true,
     },
-    cta: {
-      ctaTitle: 'Gülüşünüzü Dönüştürmeye Hazır mısınız?',
-      ctaDescription: 'Bugün başlayın ve sağlıklı, parlak bir gülüşün farkını yaşayın',
-      ctaPrimaryButton: 'Ürünleri İncele',
-      ctaSecondaryButton: 'İletişime Geç'
-    }
+  ])
+
+  // 2. HERO SECTION
+  const [hero, setHero] = useState({
+    badge: 'Yeni Nesil Dental Teknoloji',
+    title: 'Gülümsemenin',
+    titleHighlight: 'yeni hali.',
+    description: 'Günlük ağız bakımını daha pratik, hijyenik ve keyifli hale getiren 360° sonic otomatik ve kullan-at diş fırçalarını keşfedin.',
+    primaryButtonText: 'Ürünleri Keşfet',
+    primaryButtonUrl: '/urunler',
+    secondaryButtonText: 'Kategorileri İncele',
+    pill1: '360° Sonic Temizlik',
+    pill2: 'Klinik Onaylı Koruma',
+    pill3: '2 Yıl Resmi Garanti',
+    image: '',
   })
 
+  // 3. UNLIMITED BRAND BENEFITS (WHY GULUMSE)
+  const [benefits, setBenefits] = useState<DynamicSectionItem[]>([
+    { id: 'b_1', title: 'Daha Sağlıklı Dişler', description: 'Plağa karşı %99.4 daha etkili koruma ile diş eti sağlığınızı güçlendirin.', badge: '01', order: 1, active: true },
+    { id: 'b_2', title: 'Güvenli ve Doğal Temizlik', description: 'BPA içermeyen medikal malzeme ve mikro aktif karbon kıl teknolojisi.', badge: '02', order: 2, active: true },
+    { id: 'b_3', title: 'Aile Boyu Kullanım', description: 'Değiştirilebilir renkli başlıklar ve yetişkin/çocuk hassas modları.', badge: '03', order: 3, active: true },
+    { id: 'b_4', title: 'Seyahatler İçin İdeal', description: 'Ultra hafif ergonomik kılıf, 45 günlük pil ve katlanabilir seçenekler.', badge: '04', order: 4, active: true },
+    { id: 'b_5', title: 'Daha Beyaz Bir Gülüş', description: 'İlk haftadan itibaren çay, kahve ve lekelere karşı görünür parlatma.', badge: '05', order: 5, active: true },
+  ])
+  const [benefitsHeader, setBenefitsHeader] = useState({
+    badge: 'Neden Gülümse?',
+    title: 'Fark Yaratan 5 Marka Değeri.',
+    subtitle: 'Ağız ve diş sağlığında en yüksek standartları estetikle buluşturuyoruz.',
+  })
+
+  // 4. UNLIMITED CATEGORY CHOICE CARDS
+  const [categoryCards, setCategoryCards] = useState<DynamicSectionItem[]>([
+    {
+      id: 'cat_1',
+      badge: 'Sonic Technology',
+      title: 'OTOMATİK DİŞ FIRÇASI',
+      description: '360° sonic titreşim teknolojisi ile dişlerinizi 45 saniyede zahmetsizce ve profesyonel standartta temizleyin.',
+      bullets: ['360° Eşzamanlı Fırçalama', '45 Günlük Pil Ömrü', 'Hassas Diş Eti Masajı'],
+      ctaText: 'Otomatik Modelleri İncele',
+      ctaUrl: '/urunler?kategori=otomatik',
+      image: '',
+      order: 1,
+      active: true,
+    },
+    {
+      id: 'cat_2',
+      badge: 'Everyday Hygiene',
+      title: 'KULLAN AT DİŞ FIRÇASI',
+      description: 'Seyahat, ofis ve misafirlikler için kendinden macunlu veya ultra hijyenik tek kullanımlık çözümler.',
+      bullets: ['%100 Medikal Hijyen Paketi', 'Kendinden Macunlu Pratiklik', 'Çanta ve Seyahat Boyu'],
+      ctaText: 'Kullan-At Serisini İncele',
+      ctaUrl: '/urunler?kategori=kullan-at',
+      image: '',
+      order: 2,
+      active: true,
+    },
+  ])
+  const [categoryChoiceHeader, setCategoryChoiceHeader] = useState({
+    sectionBadge: 'Seçimini Yap',
+    sectionTitle: 'Gülüşün için doğru seçimi yap.',
+    sectionSubtitle: 'İhtiyacınıza en uygun diş fırçası deneyimini seçin.',
+  })
+
+  // 5. PRODUCT SHOWCASE HEADER
+  const [productShowcase, setProductShowcase] = useState({
+    badge: 'Ürün Koleksiyonu',
+    title: 'En Çok Tercih Edilenler',
+    buttonText: 'Tüm Ürünleri İncele',
+  })
+
+  // 6. FINAL CTA
+  const [cta, setCta] = useState({
+    badge: 'HAYATA GÜLÜMSE',
+    title: 'Gülümsemeye bugün başla.',
+    titleHighlight: 'Sağlığı ve estetiği keşfet.',
+    description: 'Hızlı kargo, 2 yıl resmi garanti ve %100 memnuniyet güvencesiyle sana en uygun ürünü hemen sipariş et.',
+    primaryButtonText: 'Tüm Ürünleri İncele',
+    secondaryButtonText: 'İletişime Geç',
+    guarantee1: 'Aynı Gün Kargo Teslimatı',
+    guarantee2: '2 Yıl Birebir Değişim Garantisi',
+    guarantee3: '%100 Hijyen ve Müşteri Memnuniyeti',
+  })
+
+  // 7. CORPORATE PAGES
+  const [about, setAbout] = useState({
+    title: 'Hakkımızda',
+    subtitle: 'Gülümse Dental Care Hikayemiz',
+    storyTitle: 'Yeni Nesil Ağız Sağlığı Vizyonumuz',
+    storyParagraphs: ['Gülümse olarak günlük ağız bakımını teknoloji ve konfor ile yeniden tanımlıyoruz.'],
+  })
+
+  const [faq, setFaq] = useState({
+    title: 'Sıkça Sorulan Sorular',
+    subtitle: 'Aklınıza takılan tüm soruların cevapları',
+    items: [
+      { question: 'Otomatik diş fırçası nasıl kullanılır?', answer: 'Cihazı ağzınıza yerleştirip açma tuşuna basın. 30-45 saniye içinde 360 derece sonic temizlik sağlar.' },
+      { question: 'Kargo kaç günde teslim edilir?', answer: 'Siparişleriniz aynı gün kargoya verilir, 1-3 iş günü içinde teslim edilir.' },
+      { question: 'Garantisi var mı?', answer: 'Tüm elektronik ürünlerimiz 2 yıl birebir değişim garantilidir.' },
+    ],
+  })
+
+  const [shipping, setShipping] = useState({
+    title: 'Kargo & Teslimat',
+    subtitle: 'Hızlı ve güvenli kargo süreçlerimiz',
+    shippingFee: 0,
+    freeShippingThreshold: 500,
+    deliveryTime: '1-3 İş Günü',
+    content: 'Tüm siparişleriniz aynı gün özenle paketlenerek anlaşmalı kargo firmalarına teslim edilir.',
+  })
+
+  const [returnPolicy, setReturnPolicy] = useState({
+    title: 'İade ve Değişim Koşulları',
+    subtitle: '14 gün koşulsuz iade güvencesi',
+    content: 'Kişisel hijyen ürünü olması sebebiyle ambalajı açılmamış ürünlerde 14 gün içinde iade hakkınız mevcuttur.',
+  })
+
+  const [contact, setContact] = useState({
+    title: 'İletişime Geçin',
+    subtitle: 'Sorularınız ve önerileriniz için bize ulaşın',
+    phone: '+90 850 123 45 67',
+    email: 'info@gulumse.com',
+    address: 'İstanbul, Türkiye',
+    workingHours: 'Hafta içi 09:00 - 18:00',
+  })
+
+  // Load all sections from Firestore
   useEffect(() => {
-    fetchContent()
+    const loadAll = async () => {
+      try {
+        const db = getFirestoreDB()
+        const [
+          heroDoc, storiesDoc, catDoc, whyDoc, prodShowDoc, ctaDoc,
+          aboutDoc, faqDoc, shipDoc, retDoc, contactDoc
+        ] = await Promise.all([
+          getDoc(doc(db, 'siteContent', 'hero')),
+          getDoc(doc(db, 'siteContent', 'editorialPromo')),
+          getDoc(doc(db, 'siteContent', 'categoryChoice')),
+          getDoc(doc(db, 'siteContent', 'whyGulumse')),
+          getDoc(doc(db, 'siteContent', 'productShowcase')),
+          getDoc(doc(db, 'siteContent', 'cta')),
+          getDoc(doc(db, 'siteContent', 'about')),
+          getDoc(doc(db, 'siteContent', 'faq')),
+          getDoc(doc(db, 'siteContent', 'shipping')),
+          getDoc(doc(db, 'siteContent', 'return')),
+          getDoc(doc(db, 'siteContent', 'contact')),
+        ])
+
+        if (heroDoc.exists()) setHero((prev) => ({ ...prev, ...heroDoc.data() }))
+        
+        if (storiesDoc.exists()) {
+          const d = storiesDoc.data()
+          if (d.items && Array.isArray(d.items)) {
+            setStories(d.items.sort((a: any, b: any) => (a.order || 0) - (b.order || 0)))
+          }
+        }
+
+        if (catDoc.exists()) {
+          const d = catDoc.data()
+          if (d.items && Array.isArray(d.items)) {
+            setCategoryCards(d.items.sort((a: any, b: any) => (a.order || 0) - (b.order || 0)))
+          }
+          setCategoryChoiceHeader({
+            sectionBadge: d.sectionBadge || 'Seçimini Yap',
+            sectionTitle: d.sectionTitle || 'Gülüşün için doğru seçimi yap.',
+            sectionSubtitle: d.sectionSubtitle || 'İhtiyacınıza en uygun diş fırçası deneyimini seçin.',
+          })
+        }
+
+        if (whyDoc.exists()) {
+          const d = whyDoc.data()
+          if (d.items && Array.isArray(d.items)) {
+            setBenefits(d.items.sort((a: any, b: any) => (a.order || 0) - (b.order || 0)))
+          }
+          setBenefitsHeader({
+            badge: d.badge || 'Neden Gülümse?',
+            title: d.title || 'Fark Yaratan 5 Marka Değeri.',
+            subtitle: d.subtitle || 'Ağız ve diş sağlığında en yüksek standartları estetikle buluşturuyoruz.',
+          })
+        }
+
+        if (prodShowDoc.exists()) setProductShowcase((prev) => ({ ...prev, ...prodShowDoc.data() }))
+        if (ctaDoc.exists()) setCta((prev) => ({ ...prev, ...ctaDoc.data() }))
+        if (aboutDoc.exists()) setAbout((prev) => ({ ...prev, ...aboutDoc.data() }))
+        if (faqDoc.exists()) setFaq((prev) => ({ ...prev, ...faqDoc.data() }))
+        if (shipDoc.exists()) setShipping((prev) => ({ ...prev, ...shipDoc.data() }))
+        if (retDoc.exists()) setReturnPolicy((prev) => ({ ...prev, ...retDoc.data() }))
+        if (contactDoc.exists()) setContact((prev) => ({ ...prev, ...contactDoc.data() }))
+      } catch (err) {
+        console.error('İçerikler yüklenirken hata:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadAll()
   }, [])
 
-  const fetchContent = async () => {
-    try {
-      const db = getFirestoreDB()
-      
-      // Hero content
-      const heroDoc = await getDoc(doc(db, 'siteContent', 'hero'))
-      if (heroDoc.exists()) {
-        setContent(prev => ({ ...prev, hero: heroDoc.data() as HeroContent }))
-      }
-
-      // Features - basitleştirilmiş yapı
-      try {
-        const featuresDoc = await getDoc(doc(db, 'siteContent', 'features'))
-        if (featuresDoc.exists()) {
-          const featuresData = featuresDoc.data().items || []
-          setContent(prev => ({ ...prev, features: featuresData }))
-        }
-      } catch (error) {
-        console.error('Features fetch error:', error)
-      }
-
-      // Benefits
-      const benefitsDoc = await getDoc(doc(db, 'siteContent', 'benefits'))
-      if (benefitsDoc.exists()) {
-        setContent(prev => ({ ...prev, benefits: benefitsDoc.data() as Benefit }))
-      }
-
-      // CTA
-      const ctaDoc = await getDoc(doc(db, 'siteContent', 'cta'))
-      if (ctaDoc.exists()) {
-        const ctaData = ctaDoc.data()
-        setContent(prev => ({ 
-          ...prev, 
-          cta: {
-            ctaTitle: ctaData.ctaTitle || prev.cta.ctaTitle,
-            ctaDescription: ctaData.ctaDescription || prev.cta.ctaDescription,
-            ctaPrimaryButton: ctaData.ctaPrimaryButton || prev.cta.ctaPrimaryButton,
-            ctaSecondaryButton: ctaData.ctaSecondaryButton || prev.cta.ctaSecondaryButton
-          }
-        }))
-      }
-      
-      // About
-      const aboutDoc = await getDoc(doc(db, 'siteContent', 'about'))
-      if (aboutDoc.exists()) {
-        setAboutContent(aboutDoc.data())
-      }
-      
-      // FAQ
-      const faqDoc = await getDoc(doc(db, 'siteContent', 'faq'))
-      if (faqDoc.exists()) {
-        setFaqContent(faqDoc.data())
-      }
-      
-      // Shipping
-      const shippingDoc = await getDoc(doc(db, 'siteContent', 'shipping'))
-      if (shippingDoc.exists()) {
-        setShippingContent(shippingDoc.data())
-      }
-      
-      // Return
-      const returnDoc = await getDoc(doc(db, 'siteContent', 'return'))
-      if (returnDoc.exists()) {
-        setReturnContent(returnDoc.data())
-      }
-      
-      // Menu
-      // Products Menu
-      const productsMenuDoc = await getDoc(doc(db, 'siteContent', 'productsMenu'))
-      if (productsMenuDoc.exists()) {
-        setProductsMenuContent(productsMenuDoc.data())
-      }
-      
-      // Accessories
-      const accessoriesDoc = await getDoc(doc(db, 'siteContent', 'accessories'))
-      if (accessoriesDoc.exists()) {
-        setAccessoriesContent(accessoriesDoc.data())
-      }
-      
-      // Contact
-      const contactDoc = await getDoc(doc(db, 'siteContent', 'contact'))
-      if (contactDoc.exists()) {
-        setContactContent(contactDoc.data())
-      }
-    } catch (error) {
-      console.error('Content fetch error:', error)
-    } finally {
-      setLoading(false)
+  // Universal Item Actions Helper (Add, Duplicate, Move, Toggle, Delete)
+  const addItem = (list: DynamicSectionItem[], setList: (l: DynamicSectionItem[]) => void, template: Partial<DynamicSectionItem>) => {
+    const newItem: DynamicSectionItem = {
+      id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      title: template.title || 'Yeni İçerik Başlığı',
+      subtitle: template.subtitle || '',
+      badge: template.badge || '',
+      description: template.description || 'İçerik açıklama metni...',
+      bullets: template.bullets || ['Öne çıkan özellik maddesi 1', 'Öne çıkan özellik maddesi 2'],
+      ctaText: template.ctaText || 'İncele',
+      ctaUrl: template.ctaUrl || '/urunler',
+      image: template.image || '',
+      order: list.length + 1,
+      active: true,
     }
+    setList([...list, newItem])
   }
 
-  const handleSave = async (section: 'hero' | 'benefits' | 'cta' | 'features' | 'about' | 'faq' | 'shipping' | 'return' | 'productsMenu' | 'accessories' | 'contact') => {
+  const duplicateItem = (list: DynamicSectionItem[], setList: (l: DynamicSectionItem[]) => void, id: string) => {
+    const target = list.find((item) => item.id === id)
+    if (!target) return
+    const clone: DynamicSectionItem = {
+      ...target,
+      id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      title: `${target.title} (Kopya)`,
+      order: list.length + 1,
+    }
+    setList([...list, clone])
+  }
+
+  const deleteItem = (list: DynamicSectionItem[], setList: (l: DynamicSectionItem[]) => void, id: string) => {
+    if (!confirm('Bu öğeyi silmek istediğinize emin misiniz?')) return
+    const updated = list.filter((i) => i.id !== id).map((item, idx) => ({ ...item, order: idx + 1 }))
+    setList(updated)
+  }
+
+  const toggleActive = (list: DynamicSectionItem[], setList: (l: DynamicSectionItem[]) => void, id: string) => {
+    setList(list.map((item) => (item.id === id ? { ...item, active: !item.active } : item)))
+  }
+
+  const moveItem = (list: DynamicSectionItem[], setList: (l: DynamicSectionItem[]) => void, index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= list.length) return
+
+    const newList = [...list]
+    const temp = newList[index]
+    newList[index] = newList[targetIndex]
+    newList[targetIndex] = temp
+
+    const reordered = newList.map((item, idx) => ({ ...item, order: idx + 1 }))
+    setList(reordered)
+  }
+
+  const openMediaPickerFor = (setter: (url: string) => void) => {
+    setMediaPickerTarget(() => setter)
+    setMediaPickerOpen(true)
+  }
+
+  // Save handler with notification
+  const handleSaveSection = async (sectionKey: string, data: any) => {
     setSaving(true)
+    setSaveSuccess(null)
     try {
       const db = getFirestoreDB()
-      
-      if (section === 'hero') {
-        const contentRef = doc(db, 'siteContent', 'hero')
-        const dataToSave = {
-          ...content.hero,
-          updatedAt: new Date().toISOString()
-        }
-        await setDoc(contentRef, dataToSave, { merge: true })
-        console.log('✅ Hero content saved to Firebase:', dataToSave)
-      } else if (section === 'benefits') {
-        const contentRef = doc(db, 'siteContent', 'benefits')
-        const dataToSave = {
-          ...content.benefits,
-          updatedAt: new Date().toISOString()
-        }
-        await setDoc(contentRef, dataToSave, { merge: true })
-        console.log('✅ Benefits content saved to Firebase:', dataToSave)
-      } else if (section === 'cta') {
-        const contentRef = doc(db, 'siteContent', 'cta')
-        const dataToSave = {
-          ...content.cta,
-          updatedAt: new Date().toISOString()
-        }
-        await setDoc(contentRef, dataToSave, { merge: true })
-        console.log('✅ CTA content saved to Firebase:', dataToSave)
-      } else if (section === 'features') {
-        const contentRef = doc(db, 'siteContent', 'features')
-        const dataToSave = {
-          items: content.features,
-          updatedAt: new Date().toISOString()
-        }
-        await setDoc(contentRef, dataToSave, { merge: true })
-        console.log('✅ Features content saved to Firebase:', dataToSave)
-      }
-      
-      // Firebase'e kayıt başarılı olduğunu doğrula
-      const verifyRef = doc(db, 'siteContent', section === 'features' ? 'features' : section)
-      const verifyDoc = await getDoc(verifyRef)
-      if (verifyDoc.exists()) {
-        console.log('✅ Firebase verification successful:', verifyDoc.data())
-      }
-      
-      // Yeni sayfalar için kayıt
-      if (section === 'about') {
-        const contentRef = doc(db, 'siteContent', 'about')
-        await setDoc(contentRef, { ...aboutContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ About content saved')
-      } else if (section === 'faq') {
-        const contentRef = doc(db, 'siteContent', 'faq')
-        await setDoc(contentRef, { ...faqContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ FAQ content saved')
-      } else if (section === 'shipping') {
-        const contentRef = doc(db, 'siteContent', 'shipping')
-        await setDoc(contentRef, { ...shippingContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Shipping content saved')
-      } else if (section === 'return') {
-        const contentRef = doc(db, 'siteContent', 'return')
-        await setDoc(contentRef, { ...returnContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Return content saved')
-      } else if (section === 'productsMenu') {
-        const contentRef = doc(db, 'siteContent', 'productsMenu')
-        await setDoc(contentRef, { ...productsMenuContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Products menu content saved')
-      } else if (section === 'accessories') {
-        const contentRef = doc(db, 'siteContent', 'accessories')
-        await setDoc(contentRef, { ...accessoriesContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Accessories content saved')
-      } else if (section === 'contact') {
-        const contentRef = doc(db, 'siteContent', 'contact')
-        await setDoc(contentRef, { ...contactContent, updatedAt: new Date().toISOString() }, { merge: true })
-        console.log('✅ Contact content saved')
-      }
-      
-      // Broadcast mesajı gönder (diğer sekmelerdeki sayfalar için)
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('contentUpdated', { detail: section }))
-      }
-      
-      alert('✅ İçerik başarıyla Firebase\'e kaydedildi! Sayfa otomatik güncellenecek.')
-    } catch (error: any) {
-      console.error('❌ Content save error:', error)
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        stack: error.stack
-      })
-      alert(`❌ İçerik kaydedilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}`)
+      await setDoc(doc(db, 'siteContent', sectionKey), { ...data, updatedAt: new Date().toISOString() }, { merge: true })
+      setSaveSuccess(sectionKey)
+      setTimeout(() => setSaveSuccess(null), 3000)
+    } catch (err: any) {
+      alert(`Kaydedilirken hata oluştu: ${err.message || 'Hata'}`)
     } finally {
       setSaving(false)
     }
@@ -318,1571 +340,975 @@ export default function ContentManagementPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 font-medium">İçerik Stüdyosu Yükleniyor...</p>
+        </div>
       </div>
     )
   }
 
+  const TABS = [
+    { id: 'stories', label: 'Tanıtım Hikayeleri (Sınırsız)', icon: FiStar },
+    { id: 'hero', label: 'Hero / Karşılama', icon: FiLayout },
+    { id: 'categories', label: 'Kategori Seçim Kartları', icon: FiLayers },
+    { id: 'benefits', label: 'Marka Değerleri (Neden Gülümse)', icon: FiShield },
+    { id: 'productShowcase', label: 'Öne Çıkan Ürünler Başlığı', icon: FiGrid },
+    { id: 'cta', label: 'Eylem Çağrısı (CTA)', icon: FiCompass },
+    { id: 'about', label: 'Hakkımızda', icon: FiInfo },
+    { id: 'faq', label: 'Sıkça Sorulan Sorular', icon: FiHelpCircle },
+    { id: 'shipping', label: 'Kargo & Teslimat', icon: FiTruck },
+    { id: 'return', label: 'İade & Değişim', icon: FiRotateCcw },
+    { id: 'contact', label: 'İletişim Bilgileri', icon: FiPhone },
+  ]
+
   return (
-    <div className="p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6 lg:mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Site İçerik Yönetimi</h1>
-          <p className="text-gray-600">Ana sayfa ve diğer sayfaların içeriklerini yönetin</p>
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      {/* Top Header */}
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">İçerik Yönetim Stüdyosu</h1>
+          <p className="text-gray-500 mt-1">
+            Sınırsız öğe ekleyin, sıralayın, kopyalayın ve ana sayfayı kod değiştirmeden tam dinamik yönetin.
+          </p>
         </div>
-
-        {/* Tabs */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
-          <div className="flex border-b border-gray-200 overflow-x-auto">
-            {(['hero', 'features', 'benefits', 'cta', 'about', 'faq', 'shipping', 'return', 'productsMenu', 'accessories', 'contact'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-6 py-4 font-semibold transition-colors whitespace-nowrap ${
-                  activeTab === tab
-                    ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {tab === 'hero' && 'Hero Bölümü'}
-                {tab === 'features' && 'Özellikler'}
-                {tab === 'benefits' && 'Avantajlar'}
-                {tab === 'cta' && 'Eylem Çağrısı'}
-                {tab === 'about' && 'Hakkımızda'}
-                {tab === 'faq' && 'SSS'}
-                {tab === 'shipping' && 'Kargo'}
-                {tab === 'return' && 'İade'}
-                {tab === 'productsMenu' && 'Ürünler Menüsü'}
-                {tab === 'accessories' && 'Yedek Fırçalar'}
-                {tab === 'contact' && 'İletişim Bilgileri'}
-              </button>
-            ))}
-          </div>
-
-          {/* Hero Content */}
-          {activeTab === 'hero' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Hero Bölümü İçeriği</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Badge / Etiket
-                  </label>
-                  <input
-                    type="text"
-                    value={content.hero.badge}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, badge: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="🦷 Premium Diş Bakımı"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Başlık (İlk Kısım)
-                  </label>
-                  <input
-                    type="text"
-                    value={content.hero.title}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, title: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Başlık (Vurgulanan Kısım)
-                  </label>
-                  <input
-                    type="text"
-                    value={content.hero.titleHighlight}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, titleHighlight: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Açıklama
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={content.hero.description}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, description: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Birincil Buton Metni
-                  </label>
-                  <input
-                    type="text"
-                    value={content.hero.primaryButton}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, primaryButton: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    İkincil Buton Metni
-                  </label>
-                  <input
-                    type="text"
-                    value={content.hero.secondaryButton}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, secondaryButton: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Slider Geçiş Süresi (Saniye)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="30"
-                    value={content.hero.sliderInterval || 5}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      hero: { ...prev.hero, sliderInterval: parseInt(e.target.value) || 5 }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="5"
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    Çoklu görseller arasındaki geçiş süresi (1-30 saniye arası). Varsayılan: 5 saniye
-                  </p>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hero Video (Video İzle butonu için)
-                  </label>
-                  <div className="space-y-4">
-                    {content.hero.video && (
-                      <div className="relative w-full h-48 rounded-lg overflow-hidden border-2 border-gray-200">
-                        <video
-                          src={content.hero.video}
-                          className="w-full h-full object-cover"
-                          controls
-                        />
-                        <button
-                          onClick={() => setContent(prev => ({
-                            ...prev,
-                            hero: { ...prev.hero, video: '' }
-                          }))}
-                          className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="video/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        
-                        try {
-                          setSaving(true)
-                          const { uploadVideo } = await import('@/lib/firebase/storage')
-                          const url = await uploadVideo(file, 'hero')
-                          
-                          setContent(prev => ({
-                            ...prev,
-                            hero: { ...prev.hero, video: url }
-                          }))
-                          alert('Video başarıyla yüklendi!')
-                        } catch (error: any) {
-                          console.error('Video yükleme hatası:', error)
-                          alert(`Video yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
-                        } finally {
-                          setSaving(false)
-                        }
-                        
-                        e.target.value = ''
-                      }}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      disabled={saving}
-                    />
-                    <p className="text-sm text-gray-500">
-                      Video yükleyebilirsiniz (MP4, WebM)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hero Görselleri (Çoklu Fotoğraf/Video - Slider için)
-                  </label>
-                  <div className="space-y-4">
-                    {content.hero.images && content.hero.images.length > 0 && (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {content.hero.images.map((img, index) => (
-                          <div key={index} className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-gray-200">
-                            {img.endsWith('.mp4') || img.endsWith('.webm') || img.includes('video') || (img.includes('firebasestorage') && img.includes('videos')) ? (
-                              <video
-                                src={img}
-                                className="w-full h-full object-cover"
-                                muted
-                              />
-                            ) : (
-                              <img
-                                src={img}
-                                alt={`Hero ${index + 1}`}
-                                className="w-full h-full object-cover"
-                              />
-                            )}
-                            <button
-                              onClick={() => {
-                                const newImages = content.hero.images?.filter((_, i) => i !== index) || []
-                                setContent(prev => ({
-                                  ...prev,
-                                  hero: { ...prev.hero, images: newImages }
-                                }))
-                              }}
-                              className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                            >
-                              <FiTrash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*,video/*"
-                      multiple
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || [])
-                        if (files.length === 0) return
-                        
-                        try {
-                          setSaving(true)
-                          const { uploadImage, uploadVideo } = await import('@/lib/firebase/storage')
-                          const uploadPromises = files.map(async (file) => {
-                            if (file.type.startsWith('image/')) {
-                              return await uploadImage(file, 'hero')
-                            } else if (file.type.startsWith('video/')) {
-                              return await uploadVideo(file, 'hero')
-                            }
-                            return ''
-                          })
-                          
-                          const urls = await Promise.all(uploadPromises)
-                          const validUrls = urls.filter(url => url !== '')
-                          
-                          setContent(prev => ({
-                            ...prev,
-                            hero: { 
-                              ...prev.hero, 
-                              images: [...(prev.hero.images || []), ...validUrls]
-                            }
-                          }))
-                          alert(`${validUrls.length} görsel/video başarıyla yüklendi!`)
-                        } catch (error: any) {
-                          console.error('Görsel yükleme hatası:', error)
-                          alert(`Görsel yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
-                        } finally {
-                          setSaving(false)
-                        }
-                        
-                        e.target.value = ''
-                      }}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      disabled={saving}
-                    />
-                    <p className="text-sm text-gray-500">
-                      Birden fazla fotoğraf veya video yükleyebilirsiniz (JPG, PNG, GIF, MP4, WebM). Slider olarak gösterilecektir.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hero Görseli (Tek Görsel - Eski Yöntem - Opsiyonel)
-                  </label>
-                  <div className="space-y-4">
-                    {content.hero.image && (
-                      <div className="relative w-full h-48 rounded-lg overflow-hidden border-2 border-gray-200">
-                        <img
-                          src={content.hero.image}
-                          alt="Hero"
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          onClick={() => setContent(prev => ({
-                            ...prev,
-                            hero: { ...prev.hero, image: '' }
-                          }))}
-                          className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        
-                        try {
-                          setSaving(true)
-                          const { uploadImage } = await import('@/lib/firebase/storage')
-                          const url = await uploadImage(file, 'hero')
-                          
-                          setContent(prev => ({
-                            ...prev,
-                            hero: { ...prev.hero, image: url }
-                          }))
-                          alert('Görsel başarıyla yüklendi!')
-                        } catch (error: any) {
-                          console.error('Görsel yükleme hatası:', error)
-                          alert(`Görsel yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
-                        } finally {
-                          setSaving(false)
-                        }
-                        
-                        e.target.value = ''
-                      }}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      disabled={saving}
-                    />
-                    <p className="text-sm text-gray-500">
-                      Tek bir fotoğraf yükleyebilirsiniz (JPG, PNG, GIF). Çoklu görseller için yukarıdaki alanı kullanın.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <motion.button
-                onClick={() => handleSave('hero')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Hero İçeriğini Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Benefits Content */}
-          {activeTab === 'benefits' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Avantajlar Bölümü</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Başlık
-                  </label>
-                  <input
-                    type="text"
-                    value={content.benefits.title}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      benefits: { ...prev.benefits, title: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Açıklama
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={content.benefits.description}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      benefits: { ...prev.benefits, description: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Avantajlar Görseli/Video/Animasyon
-                  </label>
-                  <div className="space-y-4">
-                    {content.benefits.image && (
-                      <div className="relative w-full h-48 rounded-lg overflow-hidden border-2 border-gray-200">
-                        {content.benefits.image.endsWith('.mp4') || content.benefits.image.endsWith('.webm') || content.benefits.image.includes('video') || (content.benefits.image.includes('firebasestorage') && content.benefits.image.includes('videos')) ? (
-                          <video
-                            src={content.benefits.image}
-                            className="w-full h-full object-cover"
-                            controls
-                          />
-                        ) : (
-                          <img
-                            src={content.benefits.image}
-                            alt="Benefits"
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                        <button
-                          onClick={() => setContent(prev => ({
-                            ...prev,
-                            benefits: { ...prev.benefits, image: '' }
-                          }))}
-                          className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        
-                        try {
-                          setSaving(true)
-                          const { uploadImage, uploadVideo } = await import('@/lib/firebase/storage')
-                          let url = ''
-                          
-                          if (file.type.startsWith('image/')) {
-                            url = await uploadImage(file, 'benefits')
-                          } else if (file.type.startsWith('video/')) {
-                            url = await uploadVideo(file, 'benefits')
-                          }
-                          
-                          setContent(prev => ({
-                            ...prev,
-                            benefits: { ...prev.benefits, image: url }
-                          }))
-                          alert('Görsel/Video başarıyla yüklendi!')
-                        } catch (error: any) {
-                          console.error('Görsel yükleme hatası:', error)
-                          alert(`Görsel/Video yüklenirken hata: ${error.message || 'Bilinmeyen hata'}`)
-                        } finally {
-                          setSaving(false)
-                        }
-                        
-                        // Reset input
-                        e.target.value = ''
-                      }}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      disabled={saving}
-                    />
-                    <p className="text-sm text-gray-500">
-                      Fotoğraf, video veya animasyon yükleyebilirsiniz (JPG, PNG, GIF, MP4, WebM)
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <motion.button
-                onClick={() => handleSave('benefits')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Features Content */}
-          {activeTab === 'features' && (
-            <div className="p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">Özellikler</h2>
-                <button
-                  onClick={() => {
-                    const newFeature: Feature = {
-                      id: Date.now().toString(),
-                      icon: 'FiZap',
-                      title: 'Yeni Özellik',
-                      description: 'Özellik açıklaması',
-                      color: 'from-primary-400 to-primary-500'
-                    }
-                    setContent(prev => ({
-                      ...prev,
-                      features: [...prev.features, newFeature]
-                    }))
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  <FiPlus className="w-4 h-4" />
-                  Özellik Ekle
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {content.features.map((feature, index) => (
-                  <div key={feature.id || index} className="border border-gray-200 rounded-lg p-4 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Başlık
-                        </label>
-                        <input
-                          type="text"
-                          value={feature.title}
-                          onChange={(e) => {
-                            const updated = [...content.features]
-                            updated[index] = { ...updated[index], title: e.target.value }
-                            setContent(prev => ({ ...prev, features: updated }))
-                          }}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Açıklama
-                        </label>
-                        <input
-                          type="text"
-                          value={feature.description}
-                          onChange={(e) => {
-                            const updated = [...content.features]
-                            updated[index] = { ...updated[index], description: e.target.value }
-                            setContent(prev => ({ ...prev, features: updated }))
-                          }}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => {
-                          setContent(prev => ({
-                            ...prev,
-                            features: prev.features.filter((_, i) => i !== index)
-                          }))
-                        }}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <FiTrash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <motion.button
-                onClick={() => handleSave('features')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Özellikleri Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Benefits Content */}
-          {activeTab === 'benefits' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Avantajlar Bölümü</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Başlık
-                  </label>
-                  <input
-                    type="text"
-                    value={content.benefits.title}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      benefits: { ...prev.benefits, title: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Açıklama
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={content.benefits.description}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      benefits: { ...prev.benefits, description: e.target.value }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                  />
-                </div>
-              </div>
-
-              <motion.button
-                onClick={() => handleSave('benefits')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* CTA Content */}
-          {activeTab === 'cta' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Eylem Çağrısı Bölümü</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Başlık
-                  </label>
-                  <input
-                    type="text"
-                    value={content.cta.ctaTitle}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      cta: { 
-                        ...prev.cta,
-                        ctaTitle: e.target.value
-                      }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Açıklama
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={content.cta.ctaDescription}
-                    onChange={(e) => setContent(prev => ({
-                      ...prev,
-                      cta: { 
-                        ...prev.cta,
-                        ctaDescription: e.target.value
-                      }
-                    }))}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Birincil Buton
-                    </label>
-                    <input
-                      type="text"
-                      value={content.cta.ctaPrimaryButton}
-                      onChange={(e) => setContent(prev => ({
-                        ...prev,
-                        cta: { 
-                          ...prev.cta,
-                          ctaPrimaryButton: e.target.value
-                        }
-                      }))}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      İkincil Buton
-                    </label>
-                    <input
-                      type="text"
-                      value={content.cta.ctaSecondaryButton}
-                      onChange={(e) => setContent(prev => ({
-                        ...prev,
-                        cta: { 
-                          ...prev.cta,
-                          ctaSecondaryButton: e.target.value
-                        }
-                      }))}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <motion.button
-                onClick={() => handleSave('cta')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* About Content */}
-          {activeTab === 'about' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Hakkımızda Sayfası</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                  <input
-                    type="text"
-                    value={aboutContent.title || ''}
-                    onChange={(e) => setAboutContent({ ...aboutContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <textarea
-                    rows={2}
-                    value={aboutContent.subtitle || ''}
-                    onChange={(e) => setAboutContent({ ...aboutContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Hikaye Başlığı</label>
-                  <input
-                    type="text"
-                    value={aboutContent.storyTitle || ''}
-                    onChange={(e) => setAboutContent({ ...aboutContent, storyTitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Hikaye Paragrafları (Her satır bir paragraf)</label>
-                  <textarea
-                    rows={5}
-                    value={aboutContent.storyParagraphs?.join('\n') || ''}
-                    onChange={(e) => setAboutContent({ ...aboutContent, storyParagraphs: e.target.value.split('\n').filter(p => p.trim()) })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="Her satır bir paragraf olacak şekilde yazın"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Hikaye Görseli</label>
-                  {aboutContent.storyImage ? (
-                    <div className="relative mb-2">
-                      <img src={aboutContent.storyImage} alt="Hikaye görseli" className="w-full h-48 object-cover rounded-lg border-2 border-gray-200" />
-                      <button
-                        type="button"
-                        onClick={() => setAboutContent({ ...aboutContent, storyImage: '' })}
-                        className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                      >
-                        <FiX className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : null}
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-600 transition-colors">
-                    <FiImage className="w-8 h-8 text-gray-400 mb-2" />
-                    <span className="text-sm text-gray-600">Görsel Yükle</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          try {
-                            const url = await uploadImage(file, 'about')
-                            setAboutContent({ ...aboutContent, storyImage: url })
-                          } catch (error) {
-                            alert('Görsel yüklenirken hata oluştu')
-                          }
-                        }
-                      }}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('about')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* FAQ Content */}
-          {activeTab === 'faq' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Sık Sorulan Sorular</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                  <input
-                    type="text"
-                    value={faqContent.title || ''}
-                    onChange={(e) => setFaqContent({ ...faqContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <input
-                    type="text"
-                    value={faqContent.subtitle || ''}
-                    onChange={(e) => setFaqContent({ ...faqContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-700">Sorular</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newItems = [...(faqContent.items || []), { question: '', answer: '' }]
-                        setFaqContent({ ...faqContent, items: newItems })
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    >
-                      <FiPlus className="w-4 h-4" />
-                      Soru Ekle
-                    </button>
-                  </div>
-                  
-                  {(faqContent.items || []).map((item: any, index: number) => (
-                    <div key={index} className="border-2 border-gray-200 rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Soru #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newItems = faqContent.items.filter((_: any, i: number) => i !== index)
-                            setFaqContent({ ...faqContent, items: newItems })
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Soru</label>
-                        <input
-                          type="text"
-                          value={item.question || ''}
-                          onChange={(e) => {
-                            const newItems = [...faqContent.items]
-                            newItems[index] = { ...newItems[index], question: e.target.value }
-                            setFaqContent({ ...faqContent, items: newItems })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                          placeholder="Soruyu buraya yazın..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Cevap</label>
-                        <textarea
-                          rows={3}
-                          value={item.answer || ''}
-                          onChange={(e) => {
-                            const newItems = [...faqContent.items]
-                            newItems[index] = { ...newItems[index], answer: e.target.value }
-                            setFaqContent({ ...faqContent, items: newItems })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                          placeholder="Cevabı buraya yazın..."
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {(faqContent.items || []).length === 0 && (
-                    <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                      <p>Henüz soru eklenmemiş. Yukarıdaki "Soru Ekle" butonuna tıklayın.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('faq')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Shipping Content */}
-          {activeTab === 'shipping' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Kargo Bilgileri</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                  <input
-                    type="text"
-                    value={shippingContent.title || ''}
-                    onChange={(e) => setShippingContent({ ...shippingContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <input
-                    type="text"
-                    value={shippingContent.subtitle || ''}
-                    onChange={(e) => setShippingContent({ ...shippingContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                
-                <div className="bg-primary-50 border-2 border-primary-200 rounded-lg p-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Kargo Ücreti (₺) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={shippingContent.shippingFee || 0}
-                    onChange={(e) => setShippingContent({ ...shippingContent, shippingFee: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="0"
-                  />
-                  <p className="text-xs text-gray-600 mt-2">
-                    Satın al sayfasında gösterilecek kargo ücreti. 0 girerseniz "Ücretsiz Kargo" olarak gösterilir.
-                  </p>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-700">Bölümler</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newSections = [...(shippingContent.sections || []), { title: '', content: '', image: '' }]
-                        setShippingContent({ ...shippingContent, sections: newSections })
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    >
-                      <FiPlus className="w-4 h-4" />
-                      Bölüm Ekle
-                    </button>
-                  </div>
-                  
-                  {(shippingContent.sections || []).map((section: any, index: number) => (
-                    <div key={index} className="border-2 border-gray-200 rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Bölüm #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSections = shippingContent.sections.filter((_: any, i: number) => i !== index)
-                            setShippingContent({ ...shippingContent, sections: newSections })
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Bölüm Başlığı</label>
-                        <input
-                          type="text"
-                          value={section.title || ''}
-                          onChange={(e) => {
-                            const newSections = [...shippingContent.sections]
-                            newSections[index] = { ...newSections[index], title: e.target.value }
-                            setShippingContent({ ...shippingContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                          placeholder="Bölüm başlığını yazın..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">İçerik</label>
-                        <textarea
-                          rows={4}
-                          value={section.content || ''}
-                          onChange={(e) => {
-                            const newSections = [...shippingContent.sections]
-                            newSections[index] = { ...newSections[index], content: e.target.value }
-                            setShippingContent({ ...shippingContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                          placeholder="İçeriği buraya yazın..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Görsel (Opsiyonel)</label>
-                        {section.image ? (
-                          <div className="relative mb-2">
-                            <img src={section.image} alt="Bölüm görseli" className="w-full h-48 object-cover rounded-lg border-2 border-gray-200" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newSections = [...shippingContent.sections]
-                                newSections[index] = { ...newSections[index], image: '' }
-                                setShippingContent({ ...shippingContent, sections: newSections })
-                              }}
-                              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                            >
-                              <FiX className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : null}
-                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-600 transition-colors">
-                          <FiImage className="w-8 h-8 text-gray-400 mb-2" />
-                          <span className="text-sm text-gray-600">Görsel Yükle</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0]
-                              if (file) {
-                                try {
-                                  const url = await uploadImage(file, 'shipping')
-                                  const newSections = [...shippingContent.sections]
-                                  newSections[index] = { ...newSections[index], image: url }
-                                  setShippingContent({ ...shippingContent, sections: newSections })
-                                } catch (error) {
-                                  alert('Görsel yüklenirken hata oluştu')
-                                }
-                              }
-                            }}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {(shippingContent.sections || []).length === 0 && (
-                    <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                      <p>Henüz bölüm eklenmemiş. Yukarıdaki "Bölüm Ekle" butonuna tıklayın.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('shipping')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Return Content */}
-          {activeTab === 'return' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">İade ve Değişim</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                  <input
-                    type="text"
-                    value={returnContent.title || ''}
-                    onChange={(e) => setReturnContent({ ...returnContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <input
-                    type="text"
-                    value={returnContent.subtitle || ''}
-                    onChange={(e) => setReturnContent({ ...returnContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-700">Bölümler</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newSections = [...(returnContent.sections || []), { title: '', content: '', image: '' }]
-                        setReturnContent({ ...returnContent, sections: newSections })
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    >
-                      <FiPlus className="w-4 h-4" />
-                      Bölüm Ekle
-                    </button>
-                  </div>
-                  
-                  {(returnContent.sections || []).map((section: any, index: number) => (
-                    <div key={index} className="border-2 border-gray-200 rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Bölüm #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSections = returnContent.sections.filter((_: any, i: number) => i !== index)
-                            setReturnContent({ ...returnContent, sections: newSections })
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Bölüm Başlığı</label>
-                        <input
-                          type="text"
-                          value={section.title || ''}
-                          onChange={(e) => {
-                            const newSections = [...returnContent.sections]
-                            newSections[index] = { ...newSections[index], title: e.target.value }
-                            setReturnContent({ ...returnContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                          placeholder="Bölüm başlığını yazın..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">İçerik</label>
-                        <textarea
-                          rows={4}
-                          value={section.content || ''}
-                          onChange={(e) => {
-                            const newSections = [...returnContent.sections]
-                            newSections[index] = { ...newSections[index], content: e.target.value }
-                            setReturnContent({ ...returnContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                          placeholder="İçeriği buraya yazın..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Görsel (Opsiyonel)</label>
-                        {section.image ? (
-                          <div className="relative mb-2">
-                            <img src={section.image} alt="Bölüm görseli" className="w-full h-48 object-cover rounded-lg border-2 border-gray-200" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newSections = [...returnContent.sections]
-                                newSections[index] = { ...newSections[index], image: '' }
-                                setReturnContent({ ...returnContent, sections: newSections })
-                              }}
-                              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                            >
-                              <FiX className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : null}
-                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-600 transition-colors">
-                          <FiImage className="w-8 h-8 text-gray-400 mb-2" />
-                          <span className="text-sm text-gray-600">Görsel Yükle</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0]
-                              if (file) {
-                                try {
-                                  const url = await uploadImage(file, 'return')
-                                  const newSections = [...returnContent.sections]
-                                  newSections[index] = { ...newSections[index], image: url }
-                                  setReturnContent({ ...returnContent, sections: newSections })
-                                } catch (error) {
-                                  alert('Görsel yüklenirken hata oluştu')
-                                }
-                              }
-                            }}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {(returnContent.sections || []).length === 0 && (
-                    <div className="text-center py-8 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                      <p>Henüz bölüm eklenmemiş. Yukarıdaki "Bölüm Ekle" butonuna tıklayın.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('return')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Products Menu Content */}
-          {activeTab === 'productsMenu' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Ürünler Menüsü</h2>
-              
-              <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm text-blue-800">
-                    <strong>Bilgi:</strong> Bu menü navbar'daki "Ürünler" butonunun altında görünecek. Her bölüm için başlık, açıklama ve buton ekleyebilirsiniz.
-                  </p>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-gray-700">Menü Bölümleri</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newSections = [...(productsMenuContent.sections || []), { 
-                          title: '', 
-                          description: '', 
-                          buttonText: 'Keşfet',
-                          url: '/urunler'
-                        }]
-                        setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    >
-                      <FiPlus className="w-4 h-4" />
-                      Bölüm Ekle
-                    </button>
-                  </div>
-                  
-                  {(productsMenuContent.sections || []).map((section: any, index: number) => (
-                    <div key={index} className="border-2 border-gray-200 rounded-lg p-5 space-y-4 bg-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">Bölüm #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSections = productsMenuContent.sections.filter((_: any, i: number) => i !== index)
-                            setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                          }}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                        <input
-                          type="text"
-                          value={section.title || ''}
-                          onChange={(e) => {
-                            const newSections = [...productsMenuContent.sections]
-                            newSections[index] = { ...newSections[index], title: e.target.value }
-                            setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                          placeholder="Örn: Diş Fırçaları, Yedek Fırça Başlıkları"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Açıklama</label>
-                        <textarea
-                          rows={3}
-                          value={section.description || ''}
-                          onChange={(e) => {
-                            const newSections = [...productsMenuContent.sections]
-                            newSections[index] = { ...newSections[index], description: e.target.value }
-                            setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                          }}
-                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                          placeholder="Bu bölüm için kısa bir açıklama yazın..."
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Buton Metni</label>
-                          <input
-                            type="text"
-                            value={section.buttonText || 'Keşfet'}
-                            onChange={(e) => {
-                              const newSections = [...productsMenuContent.sections]
-                              newSections[index] = { ...newSections[index], buttonText: e.target.value }
-                              setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                            }}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                            placeholder="Keşfet, İncele, vb."
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Yönlendirme URL</label>
-                          <input
-                            type="text"
-                            value={section.url || '/urunler'}
-                            onChange={(e) => {
-                              const newSections = [...productsMenuContent.sections]
-                              newSections[index] = { ...newSections[index], url: e.target.value }
-                              setProductsMenuContent({ ...productsMenuContent, sections: newSections })
-                            }}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                            placeholder="/urunler, /urunler?kategori=disfircalari"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {(productsMenuContent.sections || []).length === 0 && (
-                    <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                      <p className="mb-2">Henüz bölüm eklenmemiş.</p>
-                      <p className="text-sm">Yukarıdaki "Bölüm Ekle" butonuna tıklayarak başlayın.</p>
-                      <p className="text-xs mt-2 text-gray-400">Örnek: Diş Fırçaları ve Yedek Fırça Başlıkları</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('productsMenu')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Accessories Content */}
-          {activeTab === 'accessories' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Yedek Fırçalar Bölümü</h2>
-              
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
-                  <strong>Bilgi:</strong> Bu bölüm ana sayfadaki "Yedek Fırça Başlıkları" bölümünün içeriğini yönetir.
-                </p>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Başlık</label>
-                  <input
-                    type="text"
-                    value={accessoriesContent.title || ''}
-                    onChange={(e) => setAccessoriesContent({ ...accessoriesContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="Yedek Fırça Başlıkları"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <textarea
-                    rows={3}
-                    value={accessoriesContent.subtitle || ''}
-                    onChange={(e) => setAccessoriesContent({ ...accessoriesContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                    placeholder="Diş fırçanız için uygun yedek başlıklar"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Buton Metni</label>
-                    <input
-                      type="text"
-                      value={accessoriesContent.buttonText || ''}
-                      onChange={(e) => setAccessoriesContent({ ...accessoriesContent, buttonText: e.target.value })}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      placeholder="Tüm Yedek Başlıkları Görüntüle"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Buton URL</label>
-                    <input
-                      type="text"
-                      value={accessoriesContent.buttonUrl || ''}
-                      onChange={(e) => setAccessoriesContent({ ...accessoriesContent, buttonUrl: e.target.value })}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                      placeholder="/urunler?kategori=yedek-firca-basliklari"
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('accessories')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
-
-          {/* Contact Content */}
-          {activeTab === 'contact' && (
-            <div className="p-6 space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">İletişim Bilgileri</h2>
-              <p className="text-sm text-gray-600">Ana sayfadaki iletişim modalında gösterilecek bilgileri buradan yönetebilirsiniz.</p>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Modal Başlığı</label>
-                  <input
-                    type="text"
-                    value={contactContent.title || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, title: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="İletişime Geçin"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Alt Başlık</label>
-                  <input
-                    type="text"
-                    value={contactContent.subtitle || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, subtitle: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="Sorularınız için bize ulaşın"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Telefon</label>
-                  <input
-                    type="tel"
-                    value={contactContent.phone || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, phone: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="+90 (212) 123 45 67"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">E-posta</label>
-                  <input
-                    type="email"
-                    value={contactContent.email || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, email: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="info@smilebrush.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Adres</label>
-                  <textarea
-                    rows={3}
-                    value={contactContent.address || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, address: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none resize-none"
-                    placeholder="İstanbul, Türkiye"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Çalışma Saatleri</label>
-                  <input
-                    type="text"
-                    value={contactContent.workingHours || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, workingHours: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="Pazartesi - Cuma: 09:00 - 18:00"
-                  />
-                </div>
-
-                <div className="border-t pt-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bildirim E-posta Adresi <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Formdan gönderilen mesajlar bu e-posta adresine bildirim olarak gönderilecektir.
-                  </p>
-                  <input
-                    type="email"
-                    required
-                    value={contactContent.notificationEmail || ''}
-                    onChange={(e) => setContactContent({ ...contactContent, notificationEmail: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                    placeholder="admin@smilebrush.com"
-                  />
-                </div>
-              </div>
-              
-              <motion.button
-                onClick={() => handleSave('contact')}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
-              >
-                <FiSave className="w-5 h-5" />
-                {saving ? 'Kaydediliyor...' : 'Kaydet'}
-              </motion.button>
-            </div>
-          )}
+        <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-medium">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          Canlı Firebase Senkronizasyonu Aktif
         </div>
       </div>
+
+      {/* Tabs Bar */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6 p-2 overflow-x-auto">
+        <div className="flex gap-1.5 min-w-max">
+          {TABS.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as ContentTab)}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  isActive
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 sm:p-8">
+
+        {/* 1. UNLIMITED EDITORIAL STORIES TAB */}
+        {activeTab === 'stories' && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Tanıtım Hikayeleri (Editorial Stories)</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Ana sayfadaki koyu temalı hikaye blokları. İstediğiniz kadar (1, 2, 3, 4, 10...) ekleyebilirsiniz.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    addItem(stories, setStories, {
+                      badge: 'YENİ HİKAYE',
+                      subtitle: 'Dental Bakım Tavsiyesi',
+                      title: 'Yeni Tanıtım Hikayesi Başlığı',
+                      description: 'Hikaye detaylarını ve kullanıcıya güven veren medikal özellikleri buraya yazın.',
+                      bullets: ['Klinik Onaylı Teknoloji', '%100 Hijyen Güvencesi'],
+                      ctaText: 'Hemen İncele',
+                      ctaUrl: '/urunler',
+                    })
+                  }
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-xl text-xs font-bold transition-all"
+                >
+                  <FiPlus className="w-4 h-4" />
+                  <span>+ Yeni Hikaye Ekle</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveSection('editorialPromo', { items: stories })}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                >
+                  {saveSuccess === 'editorialPromo' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                  <span>{saving ? 'Kaydediliyor...' : saveSuccess === 'editorialPromo' ? 'Kaydedildi!' : 'Hikayeleri Kaydet'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Stories Dynamic List */}
+            <div className="space-y-6">
+              {stories.map((story, index) => (
+                <div
+                  key={story.id}
+                  className={`rounded-2xl border p-6 transition-all ${
+                    story.active ? 'bg-slate-50 border-slate-200' : 'bg-gray-100/70 border-gray-200 opacity-60'
+                  }`}
+                >
+                  {/* Item Header Controls */}
+                  <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200/80">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-primary-600 text-white text-xs font-bold flex items-center justify-center">
+                        {index + 1}
+                      </span>
+                      <h3 className="text-sm font-bold text-gray-900 truncate max-w-xs sm:max-w-md">
+                        {story.title || 'İsimsiz Hikaye'}
+                      </h3>
+                      {!story.active && (
+                        <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
+                          Pasif
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {/* Move Up */}
+                      <button
+                        type="button"
+                        onClick={() => moveItem(stories, setStories, index, 'up')}
+                        disabled={index === 0}
+                        title="Yukarı Taşı"
+                        className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-white rounded-lg transition-colors disabled:opacity-30"
+                      >
+                        <FiArrowUp className="w-4 h-4" />
+                      </button>
+
+                      {/* Move Down */}
+                      <button
+                        type="button"
+                        onClick={() => moveItem(stories, setStories, index, 'down')}
+                        disabled={index === stories.length - 1}
+                        title="Aşağı Taşı"
+                        className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-white rounded-lg transition-colors disabled:opacity-30"
+                      >
+                        <FiArrowDown className="w-4 h-4" />
+                      </button>
+
+                      {/* Duplicate */}
+                      <button
+                        type="button"
+                        onClick={() => duplicateItem(stories, setStories, story.id)}
+                        title="Bu Hikayeyi Kopyala (Duplicate)"
+                        className="p-1.5 text-primary-600 hover:bg-white rounded-lg transition-colors"
+                      >
+                        <FiCopy className="w-4 h-4" />
+                      </button>
+
+                      {/* Toggle Active */}
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(stories, setStories, story.id)}
+                        title={story.active ? 'Pasif Yap' : 'Aktif Yap'}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          story.active ? 'text-emerald-600 hover:bg-white' : 'text-gray-400 hover:bg-white'
+                        }`}
+                      >
+                        {story.active ? <FiEye className="w-4 h-4" /> : <FiEyeOff className="w-4 h-4" />}
+                      </button>
+
+                      {/* Delete */}
+                      <button
+                        type="button"
+                        onClick={() => deleteItem(stories, setStories, story.id)}
+                        title="Sil"
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-1"
+                      >
+                        <FiTrash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Item Edit Fields Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Üst Başlık (Badge)</label>
+                      <input
+                        type="text"
+                        value={story.badge || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, badge: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                        placeholder="örn: Her 3 Ayda Bir Yenileyin"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Alt Kategori Başlığı</label>
+                      <input
+                        type="text"
+                        value={story.subtitle || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, subtitle: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                        placeholder="örn: Ağız Sağlığı Rutini"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Büyük Ana Başlık</label>
+                      <input
+                        type="text"
+                        value={story.title}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, title: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold focus:border-primary-600 focus:outline-none"
+                        placeholder="Fırçanı Düzenli Yenile, Maksimum Koruma Sağla."
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Açıklama Metni</label>
+                      <textarea
+                        rows={3}
+                        value={story.description || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, description: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">CTA Buton Yazısı</label>
+                      <input
+                        type="text"
+                        value={story.ctaText || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, ctaText: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                        placeholder="Yedek Başlıkları İncele"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">CTA Buton Linki</label>
+                      <input
+                        type="text"
+                        value={story.ctaUrl || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setStories(stories.map((s) => (s.id === story.id ? { ...s, ctaUrl: val } : s)))
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                        placeholder="/urunler"
+                      />
+                    </div>
+
+                    {/* Image Selector */}
+                    <div className="md:col-span-2 bg-white p-4 rounded-xl border border-gray-200">
+                      <label className="block text-xs font-semibold text-gray-700 mb-2">Hikaye Görseli</label>
+                      <div className="flex items-center gap-4">
+                        {story.image ? (
+                          <div className="relative w-20 h-20 rounded-xl border border-gray-200 overflow-hidden bg-slate-50 flex-shrink-0">
+                            <img src={story.image} alt="" className="w-full h-full object-contain p-1" />
+                            <button
+                              type="button"
+                              onClick={() => setStories(stories.map((s) => (s.id === story.id ? { ...s, image: '' } : s)))}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px]"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-400 flex-shrink-0">
+                            <FiImage className="w-6 h-6" />
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openMediaPickerFor((url) => {
+                                setStories(stories.map((s) => (s.id === story.id ? { ...s, image: url } : s)))
+                              })
+                            }
+                            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                          >
+                            <FiImage className="w-3.5 h-3.5" />
+                            <span>Medyadan Seç</span>
+                          </button>
+
+                          <label className="cursor-pointer px-4 py-2 bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5">
+                            <FiUpload className="w-3.5 h-3.5" />
+                            <span>Yeni Görsel Yükle</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                try {
+                                  const url = await uploadImage(file, 'stories')
+                                  setStories(stories.map((s) => (s.id === story.id ? { ...s, image: url } : s)))
+                                } catch (err: any) {
+                                  alert(`Hata: ${err.message || 'Yüklenemedi'}`)
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Bullets List */}
+                    <div className="md:col-span-2 bg-white p-4 rounded-xl border border-gray-200 space-y-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-gray-700">Öne Çıkan Madde & Avantajlar</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newBullets = [...(story.bullets || []), '']
+                            setStories(stories.map((s) => (s.id === story.id ? { ...s, bullets: newBullets } : s)))
+                          }}
+                          className="text-[11px] font-bold text-primary-600 hover:text-primary-700"
+                        >
+                          + Madde Ekle
+                        </button>
+                      </div>
+
+                      {(story.bullets || []).map((bullet, bIdx) => (
+                        <div key={bIdx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={bullet}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const updated = [...(story.bullets || [])]
+                              updated[bIdx] = val
+                              setStories(stories.map((s) => (s.id === story.id ? { ...s, bullets: updated } : s)))
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                            placeholder="Madde metni..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (story.bullets || []).filter((_, i) => i !== bIdx)
+                              setStories(stories.map((s) => (s.id === story.id ? { ...s, bullets: updated } : s)))
+                            }}
+                            className="text-red-500 hover:text-red-700 p-1"
+                          >
+                            <FiTrash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 2. HERO SECTION TAB */}
+        {activeTab === 'hero' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Hero / Ana Karşılama Bölümü</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Sitenin en üstündeki ana karşılama başlığı ve metinleri</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSaveSection('hero', hero)}
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+              >
+                {saveSuccess === 'hero' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                <span>{saving ? 'Kaydediliyor...' : saveSuccess === 'hero' ? 'Kaydedildi!' : 'Hero Kaydet'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Üst Rozet</label>
+                <input
+                  type="text"
+                  value={hero.badge}
+                  onChange={(e) => setHero({ ...hero, badge: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Ana Başlık (İlk Kısım)</label>
+                <input
+                  type="text"
+                  value={hero.title}
+                  onChange={(e) => setHero({ ...hero, title: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Vurgulu Başlık (Renkli Kısım)</label>
+                <input
+                  type="text"
+                  value={hero.titleHighlight}
+                  onChange={(e) => setHero({ ...hero, titleHighlight: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Birincil Buton Metni</label>
+                <input
+                  type="text"
+                  value={hero.primaryButtonText}
+                  onChange={(e) => setHero({ ...hero, primaryButtonText: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Açıklama Metni</label>
+                <textarea
+                  rows={3}
+                  value={hero.description}
+                  onChange={(e) => setHero({ ...hero, description: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">İkincil Buton Metni</label>
+                <input
+                  type="text"
+                  value={hero.secondaryButtonText}
+                  onChange={(e) => setHero({ ...hero, secondaryButtonText: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Güven Rozeti 1</label>
+                <input
+                  type="text"
+                  value={hero.pill1}
+                  onChange={(e) => setHero({ ...hero, pill1: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Güven Rozeti 2</label>
+                <input
+                  type="text"
+                  value={hero.pill2}
+                  onChange={(e) => setHero({ ...hero, pill2: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Güven Rozeti 3</label>
+                <input
+                  type="text"
+                  value={hero.pill3}
+                  onChange={(e) => setHero({ ...hero, pill3: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. UNLIMITED CATEGORY CARDS TAB */}
+        {activeTab === 'categories' && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Kategori Seçim Kartları</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Ana sayfadaki seçim kartları (sınırsız eklenebilir)</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    addItem(categoryCards, setCategoryCards, {
+                      badge: 'Yeni Seri',
+                      title: 'YENİ KATEGORİ BAŞLIĞI',
+                      description: 'Kategori tanıtım ve kullanım açıklaması.',
+                      bullets: ['Özellik 1', 'Özellik 2', 'Özellik 3'],
+                      ctaText: 'Koleksiyonu İncele',
+                      ctaUrl: '/urunler',
+                    })
+                  }
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-xl text-xs font-bold transition-all"
+                >
+                  <FiPlus className="w-4 h-4" />
+                  <span>+ Yeni Kart Ekle</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSaveSection('categoryChoice', {
+                      ...categoryChoiceHeader,
+                      items: categoryCards,
+                    })
+                  }
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                >
+                  {saveSuccess === 'categoryChoice' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                  <span>{saving ? 'Kaydediliyor...' : saveSuccess === 'categoryChoice' ? 'Kaydedildi!' : 'Kartları Kaydet'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Header info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Bölüm Üst Rozeti</label>
+                <input
+                  type="text"
+                  value={categoryChoiceHeader.sectionBadge}
+                  onChange={(e) => setCategoryChoiceHeader({ ...categoryChoiceHeader, sectionBadge: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Bölüm Ana Başlığı</label>
+                <input
+                  type="text"
+                  value={categoryChoiceHeader.sectionTitle}
+                  onChange={(e) => setCategoryChoiceHeader({ ...categoryChoiceHeader, sectionTitle: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Cards List */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {categoryCards.map((card, index) => (
+                <div
+                  key={card.id}
+                  className={`rounded-2xl border p-5 space-y-4 transition-all ${
+                    card.active ? 'bg-slate-50 border-slate-200' : 'bg-gray-100 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <span className="text-xs font-bold text-primary-700">Kart #{index + 1}</span>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => moveItem(categoryCards, setCategoryCards, index, 'up')} disabled={index === 0} className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30">
+                        <FiArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => moveItem(categoryCards, setCategoryCards, index, 'down')} disabled={index === categoryCards.length - 1} className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30">
+                        <FiArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => duplicateItem(categoryCards, setCategoryCards, card.id)} className="p-1 text-primary-600">
+                        <FiCopy className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => toggleActive(categoryCards, setCategoryCards, card.id)} className="p-1 text-emerald-600">
+                        {card.active ? <FiEye className="w-3.5 h-3.5" /> : <FiEyeOff className="w-3.5 h-3.5" />}
+                      </button>
+                      <button type="button" onClick={() => deleteItem(categoryCards, setCategoryCards, card.id)} className="p-1 text-red-500">
+                        <FiTrash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Kart Rozeti</label>
+                    <input
+                      type="text"
+                      value={card.badge || ''}
+                      onChange={(e) => setCategoryCards(categoryCards.map((c) => (c.id === card.id ? { ...c, badge: e.target.value } : c)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Kart Başlığı</label>
+                    <input
+                      type="text"
+                      value={card.title}
+                      onChange={(e) => setCategoryCards(categoryCards.map((c) => (c.id === card.id ? { ...c, title: e.target.value } : c)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Açıklama</label>
+                    <textarea
+                      rows={2}
+                      value={card.description || ''}
+                      onChange={(e) => setCategoryCards(categoryCards.map((c) => (c.id === card.id ? { ...c, description: e.target.value } : c)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Buton Metni</label>
+                    <input
+                      type="text"
+                      value={card.ctaText || ''}
+                      onChange={(e) => setCategoryCards(categoryCards.map((c) => (c.id === card.id ? { ...c, ctaText: e.target.value } : c)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. UNLIMITED BENEFITS (WHY GULUMSE) TAB */}
+        {activeTab === 'benefits' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Marka Değerleri & Avantajlar (Sınırsız)</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Neden Gülümse bölümündeki güven ve avantaj kartları</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    addItem(benefits, setBenefits, {
+                      title: 'Yeni Marka Değeri',
+                      description: 'Müşteriye güven veren avantaj açıklaması.',
+                    })
+                  }
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-xl text-xs font-bold"
+                >
+                  <FiPlus className="w-4 h-4" />
+                  <span>+ Yeni Değer Ekle</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSaveSection('whyGulumse', {
+                      ...benefitsHeader,
+                      items: benefits,
+                    })
+                  }
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                >
+                  {saveSuccess === 'whyGulumse' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                  <span>{saving ? 'Kaydediliyor...' : saveSuccess === 'whyGulumse' ? 'Kaydedildi!' : 'Değerleri Kaydet'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {benefits.map((b, index) => (
+                <div key={b.id} className="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 items-center">
+                  <div className="sm:col-span-1 flex items-center justify-center">
+                    <span className="text-xs font-bold text-primary-600 bg-primary-50 px-2.5 py-1 rounded-lg">
+                      #{index + 1}
+                    </span>
+                  </div>
+                  <div className="sm:col-span-4">
+                    <input
+                      type="text"
+                      value={b.title}
+                      onChange={(e) => setBenefits(benefits.map((item) => (item.id === b.id ? { ...item, title: e.target.value } : item)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold"
+                      placeholder="Değer Başlığı"
+                    />
+                  </div>
+                  <div className="sm:col-span-5">
+                    <input
+                      type="text"
+                      value={b.description || ''}
+                      onChange={(e) => setBenefits(benefits.map((item) => (item.id === b.id ? { ...item, description: e.target.value } : item)))}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                      placeholder="Açıklama metni..."
+                    />
+                  </div>
+                  <div className="sm:col-span-2 flex items-center justify-end gap-1">
+                    <button type="button" onClick={() => moveItem(benefits, setBenefits, index, 'up')} disabled={index === 0} className="p-1 text-gray-500 disabled:opacity-30">
+                      <FiArrowUp className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => moveItem(benefits, setBenefits, index, 'down')} disabled={index === benefits.length - 1} className="p-1 text-gray-500 disabled:opacity-30">
+                      <FiArrowDown className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => duplicateItem(benefits, setBenefits, b.id)} className="p-1 text-primary-600">
+                      <FiCopy className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => deleteItem(benefits, setBenefits, b.id)} className="p-1 text-red-500">
+                      <FiTrash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 5. PRODUCT SHOWCASE */}
+        {activeTab === 'productShowcase' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Öne Çıkan Ürünler Başlıkları</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Ürün ızgarasının üstündeki başlık ve buton ayarları</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSaveSection('productShowcase', productShowcase)}
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              >
+                {saveSuccess === 'productShowcase' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                <span>Vitrini Kaydet</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Üst Rozet</label>
+                <input
+                  type="text"
+                  value={productShowcase.badge}
+                  onChange={(e) => setProductShowcase({ ...productShowcase, badge: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Ana Başlık</label>
+                <input
+                  type="text"
+                  value={productShowcase.title}
+                  onChange={(e) => setProductShowcase({ ...productShowcase, title: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Tüm Ürünler Butonu</label>
+                <input
+                  type="text"
+                  value={productShowcase.buttonText}
+                  onChange={(e) => setProductShowcase({ ...productShowcase, buttonText: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6. CTA TAB */}
+        {activeTab === 'cta' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Eylem Çağrısı (CTA) Bölümü</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Ana sayfanın en altındaki büyük satın alma banner'ı</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSaveSection('cta', cta)}
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              >
+                {saveSuccess === 'cta' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                <span>CTA Kaydet</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Rozet</label>
+                <input
+                  type="text"
+                  value={cta.badge}
+                  onChange={(e) => setCta({ ...cta, badge: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Ana Başlık</label>
+                <input
+                  type="text"
+                  value={cta.title}
+                  onChange={(e) => setCta({ ...cta, title: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Vurgulanan Başlık</label>
+                <input
+                  type="text"
+                  value={cta.titleHighlight}
+                  onChange={(e) => setCta({ ...cta, titleHighlight: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Birincil Buton Metni</label>
+                <input
+                  type="text"
+                  value={cta.primaryButtonText}
+                  onChange={(e) => setCta({ ...cta, primaryButtonText: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Açıklama Metni</label>
+                <textarea
+                  rows={2}
+                  value={cta.description}
+                  onChange={(e) => setCta({ ...cta, description: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 7. ABOUT, FAQ, SHIPPING, RETURN, CONTACT TABS */}
+        {activeTab === 'about' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Hakkımızda Sayfası</h2>
+              <button type="button" onClick={() => handleSaveSection('about', about)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Başlık</label>
+                <input type="text" value={about.title} onChange={(e) => setAbout({ ...about, title: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Hikaye Başlığı</label>
+                <input type="text" value={about.storyTitle} onChange={(e) => setAbout({ ...about, storyTitle: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Açıklama</label>
+                <textarea rows={4} value={about.storyParagraphs?.[0] || ''} onChange={(e) => setAbout({ ...about, storyParagraphs: [e.target.value] })} className="w-full px-4 py-2.5 border rounded-xl text-sm resize-none" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'faq' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Sıkça Sorulan Sorular</h2>
+              <button type="button" onClick={() => handleSaveSection('faq', faq)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
+            </div>
+            <div className="space-y-4">
+              {faq.items.map((item, idx) => (
+                <div key={idx} className="p-4 bg-gray-50 border rounded-xl space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-gray-500">Soru #{idx + 1}</span>
+                    <button type="button" onClick={() => setFaq({ ...faq, items: faq.items.filter((_, i) => i !== idx) })} className="text-red-500 text-xs">Sil</button>
+                  </div>
+                  <input type="text" value={item.question} onChange={(e) => {
+                    const up = [...faq.items]
+                    up[idx].question = e.target.value
+                    setFaq({ ...faq, items: up })
+                  }} className="w-full px-3 py-2 bg-white border rounded-lg text-sm font-semibold" />
+                  <textarea rows={2} value={item.answer} onChange={(e) => {
+                    const up = [...faq.items]
+                    up[idx].answer = e.target.value
+                    setFaq({ ...faq, items: up })
+                  }} className="w-full px-3 py-2 bg-white border rounded-lg text-sm resize-none" />
+                </div>
+              ))}
+              <button type="button" onClick={() => setFaq({ ...faq, items: [...faq.items, { question: '', answer: '' }] })} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-xs font-bold">+ Yeni Soru Ekle</button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'shipping' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Kargo & Teslimat</h2>
+              <button type="button" onClick={() => handleSaveSection('shipping', shipping)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Sabit Kargo Ücreti (₺)</label>
+                <input type="number" value={shipping.shippingFee} onChange={(e) => setShipping({ ...shipping, shippingFee: parseFloat(e.target.value) || 0 })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Teslimat Süresi</label>
+                <input type="text" value={shipping.deliveryTime} onChange={(e) => setShipping({ ...shipping, deliveryTime: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'return' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">İade & Değişim</h2>
+              <button type="button" onClick={() => handleSaveSection('return', returnPolicy)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">İade Bilgilendirme Metni</label>
+              <textarea rows={5} value={returnPolicy.content} onChange={(e) => setReturnPolicy({ ...returnPolicy, content: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm resize-none" />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'contact' && (
+          <div className="space-y-6">
+            <div className="border-b border-gray-100 pb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">İletişim Bilgileri</h2>
+              <button type="button" onClick={() => handleSaveSection('contact', contact)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Telefon</label>
+                <input type="text" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">E-posta</label>
+                <input type="email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Adres</label>
+                <input type="text" value={contact.address} onChange={(e) => setContact({ ...contact, address: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Çalışma Saatleri</label>
+                <input type="text" value={contact.workingHours} onChange={(e) => setContact({ ...contact, workingHours: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* Global Media Picker Modal */}
+      <MediaPickerModal
+        isOpen={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        onSelect={(url) => {
+          if (mediaPickerTarget) mediaPickerTarget(url)
+        }}
+      />
     </div>
   )
 }
-

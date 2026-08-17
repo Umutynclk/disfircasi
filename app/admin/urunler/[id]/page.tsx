@@ -5,15 +5,22 @@ import { useRouter, useParams } from 'next/navigation'
 import { getCurrentUser } from '@/lib/firebase/auth'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { uploadImage, uploadVideo } from '@/lib/firebase/storage'
+import { uploadImage, uploadVideo, uploadModel } from '@/lib/firebase/storage'
+import { subscribeToCategories, createCategory, Category } from '@/lib/firebase/categories'
 import { motion } from 'framer-motion'
-import { FiX, FiImage, FiVideo, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiX, FiImage, FiVideo, FiPlus, FiTrash2, FiBox, FiFolderPlus } from 'react-icons/fi'
+import MediaPickerModal from '@/components/admin/MediaPickerModal'
 
 export default function EditProductPage() {
   const router = useRouter()
   const params = useParams()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [showMediaModal, setShowMediaModal] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatDesc, setNewCatDesc] = useState('')
+  const [creatingCat, setCreatingCat] = useState(false)
   
   const [formData, setFormData] = useState({
     name: '',
@@ -21,16 +28,21 @@ export default function EditProductPage() {
     discountPrice: '',
     discountPercentage: '',
     description: '',
-    category: 'elektrikli-disfircasi',
+    category: 'otomatik',
     inStock: true,
+    isPopular: false,
     features: [''],
     specifications: {} as Record<string, string>,
   })
+  
+  const [categories, setCategories] = useState<Category[]>([])
   
   const [existingImages, setExistingImages] = useState<string[]>([])
   const [newImages, setNewImages] = useState<File[]>([])
   const [existingVideo, setExistingVideo] = useState<string>('')
   const [newVideo, setNewVideo] = useState<File | null>(null)
+  const [existingModel3d, setExistingModel3d] = useState<string>('')
+  const [newModel3d, setNewModel3d] = useState<File | null>(null)
   
   interface ColorOption {
     name: string
@@ -64,13 +76,15 @@ export default function EditProductPage() {
             discountPrice: data.discountPrice?.toString() || '',
             discountPercentage: data.discountPercentage?.toString() || '',
             description: data.description || '',
-            category: data.category || 'premium',
+            category: data.category || 'otomatik',
             inStock: data.inStock !== undefined ? data.inStock : true,
+            isPopular: data.isPopular || false,
             features: data.features && data.features.length > 0 ? data.features : [''],
             specifications: data.specifications || {}
           })
-          setExistingImages(data.images || [])
+          setExistingImages(data.images || (data.image ? [data.image] : []))
           setExistingVideo(data.video || '')
+          setExistingModel3d(data.model3dUrl || '')
           setColors(data.colors?.map((c: any) => ({ 
             ...c, 
             images: [], 
@@ -84,6 +98,12 @@ export default function EditProductPage() {
       }
     }
     checkAuthAndLoad()
+    
+    // Kategorileri dinamik olarak dinle
+    const unsub = subscribeToCategories((cats) => {
+      setCategories(cats)
+    })
+    return () => unsub()
   }, [params.id, router])
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,6 +172,44 @@ export default function EditProductPage() {
     setFormData({ ...formData, specifications: newSpecs })
   }
 
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newCatName.trim()) return
+
+    setCreatingCat(true)
+    try {
+      const slug = newCatName
+        .toLowerCase()
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+
+      await createCategory({
+        name: newCatName.trim(),
+        slug: slug || `cat-${Date.now()}`,
+        description: newCatDesc.trim(),
+        order: categories.length + 1,
+        active: true,
+      })
+
+      setFormData((prev) => ({ ...prev, category: slug }))
+      setNewCatName('')
+      setNewCatDesc('')
+      setShowCatModal(false)
+      alert(`✅ "${newCatName}" kategorisi oluşturuldu ve seçildi!`)
+    } catch (err: any) {
+      alert(`Kategori oluşturulamadı: ${err.message || 'Hata'}`)
+    } finally {
+      setCreatingCat(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -201,39 +259,72 @@ export default function EditProductPage() {
           return colorData
         })
       )
-      // Firestore'u güncelle
-      const productData: any = {
-        name: formData.name,
-        price: parseFloat(formData.price),
-        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
-        discountPercentage: formData.discountPercentage ? parseFloat(formData.discountPercentage) : null,
-        hasDiscount: !!(formData.discountPrice && parseFloat(formData.discountPrice) < parseFloat(formData.price)),
-        description: formData.description,
-        category: formData.category,
-        inStock: formData.inStock,
-        images: [...existingImages, ...uploadedImageUrls],
-        features: formData.features.filter(f => f.trim() !== ''),
-        specifications: formData.specifications,
-        updatedAt: new Date()
+      // 3D Modeli yükle
+      let uploadedModelUrl = existingModel3d
+      if (newModel3d) {
+        uploadedModelUrl = await uploadModel(newModel3d, 'products/models')
       }
 
-      // Video varsa ekle (undefined olmamalı)
+      // Firestore'u güncelle
+      const regularPrice = parseFloat(formData.price)
+      const discountPriceNum = formData.discountPrice && !isNaN(parseFloat(formData.discountPrice))
+        ? parseFloat(formData.discountPrice)
+        : null
+      const discountPercentageNum = formData.discountPercentage && !isNaN(parseFloat(formData.discountPercentage))
+        ? parseFloat(formData.discountPercentage)
+        : null
+
+      const allImages = [...existingImages, ...uploadedImageUrls]
+
+      const productData: any = {
+        name: formData.name.trim(),
+        price: regularPrice,
+        description: formData.description || '',
+        category: formData.category || (categories[0]?.slug || 'otomatik'),
+        inStock: formData.inStock ?? true,
+        isPopular: formData.isPopular ?? false,
+        images: allImages,
+        image: allImages[0] || '',
+        features: formData.features.filter(f => f && f.trim() !== ''),
+        updatedAt: new Date().toISOString()
+      }
+
+      if (discountPriceNum !== null && discountPriceNum < regularPrice) {
+        productData.discountPrice = discountPriceNum
+        productData.hasDiscount = true
+        if (discountPercentageNum !== null) {
+          productData.discountPercentage = discountPercentageNum
+        }
+      } else {
+        productData.discountPrice = null
+        productData.hasDiscount = false
+        productData.discountPercentage = null
+      }
+
       if (uploadedVideoUrl) {
         productData.video = uploadedVideoUrl
       }
 
-      // Colors varsa ekle
+      if (uploadedModelUrl) {
+        productData.model3dUrl = uploadedModelUrl
+      }
+
       if (uploadedColors.length > 0) {
         productData.colors = uploadedColors
+      }
+
+      if (formData.specifications && Object.keys(formData.specifications).length > 0) {
+        productData.specifications = formData.specifications
       }
 
       const db = getFirestoreDB()
       const productRef = doc(db, 'products', params.id as string)
       await updateDoc(productRef, productData)
-      router.push('/admin')
-    } catch (error) {
+      alert('✅ Ürün başarıyla güncellendi!')
+      router.push('/admin/urunler')
+    } catch (error: any) {
       console.error('Ürün güncellenirken hata:', error)
-      alert('Ürün güncellenirken bir hata oluştu')
+      alert(`Ürün güncellenirken hata oluştu: ${error.message || 'Bilinmeyen hata'}`)
     } finally {
       setSaving(false)
     }
@@ -305,16 +396,29 @@ export default function EditProductPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Kategori
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Kategori
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowCatModal(true)}
+                      className="text-xs font-bold text-primary-600 hover:text-primary-700 flex items-center gap-1 bg-primary-50 px-2.5 py-1 rounded-lg transition-colors"
+                    >
+                      <FiFolderPlus className="w-3.5 h-3.5" />
+                      <span>+ Yeni Kategori</span>
+                    </button>
+                  </div>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-600 focus:outline-none"
                   >
-                    <option value="elektrikli-disfircasi">Elektrikli Diş Fırçası</option>
-                    <option value="yedek-firca-basliklari">Yedek Fırça Başlıkları</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id || cat.slug} value={cat.slug}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -394,17 +498,32 @@ export default function EditProductPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="inStock"
-                  checked={formData.inStock}
-                  onChange={(e) => setFormData({ ...formData, inStock: e.target.checked })}
-                  className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                />
-                <label htmlFor="inStock" className="text-sm font-medium text-gray-700">
-                  Stokta var
-                </label>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="inStock"
+                    checked={formData.inStock}
+                    onChange={(e) => setFormData({ ...formData, inStock: e.target.checked })}
+                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                  />
+                  <label htmlFor="inStock" className="text-sm font-medium text-gray-700">
+                    Stokta var
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isPopular"
+                    checked={formData.isPopular}
+                    onChange={(e) => setFormData({ ...formData, isPopular: e.target.checked })}
+                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                  />
+                  <label htmlFor="isPopular" className="text-sm font-medium text-gray-700">
+                    Popüler Ürün
+                    <span className="text-xs text-gray-500 ml-2">(Ana sayfada gösterilir)</span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -792,6 +911,87 @@ export default function EditProductPage() {
           </form>
         </motion.div>
       </div>
+
+      {/* Inline New Category Modal */}
+      {showCatModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 sm:p-8 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center">
+                  <FiFolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Yeni Kategori Ekle</h3>
+                  <p className="text-xs text-gray-500">Ürünlerinize yeni bir kategori oluşturun</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCatModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center"
+              >
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Kategori Adı *
+                </label>
+                <input
+                  type="text"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="örn: Seyahat Setleri"
+                  required
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Açıklama (Opsiyonel)
+                </label>
+                <input
+                  type="text"
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  placeholder="Kategori açıklaması"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:border-primary-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCatModal(false)}
+                  className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl text-xs transition-colors"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingCat || !newCatName.trim()}
+                  className="flex-1 px-4 py-3 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md disabled:opacity-50"
+                >
+                  {creatingCat ? 'Oluşturuluyor...' : 'Kategori Oluştur'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Media Picker Modal */}
+      <MediaPickerModal
+        isOpen={showMediaModal}
+        onClose={() => setShowMediaModal(false)}
+        onSelect={(url) => {
+          setExistingImages((prev) => [...prev, url])
+        }}
+      />
     </div>
   )
 }

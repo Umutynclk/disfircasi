@@ -1,11 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { collection, getDocs, onSnapshot } from 'firebase/firestore'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { collection, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { motion } from 'framer-motion'
+import { subscribeToCategories, Category } from '@/lib/firebase/categories'
+import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { FiShoppingCart, FiSearch, FiStar } from 'react-icons/fi'
+import Image from 'next/image'
+import { FiShoppingBag, FiSearch, FiStar, FiCheck, FiFilter, FiArrowRight } from 'react-icons/fi'
+import { addToCart } from '@/lib/utils/cart'
 
 interface ColorOption {
   name: string
@@ -25,323 +29,359 @@ interface Product {
   images?: string[]
   description: string
   category?: string
+  categoryId?: string
   inStock?: boolean
   features?: string[]
   colors?: ColorOption[]
   rating?: number
+  isPopular?: boolean
 }
 
-const getProductImage = (product: Product): string | undefined => {
-  if (product.images && product.images.length > 0) {
-    return product.images[0]
-  }
-  return product.image
-}
+function ProductsListContent() {
+  const searchParams = useSearchParams()
+  const categoryParam = searchParams.get('kategori')
 
-export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [selectedCategorySlug, setSelectedCategorySlug] = useState<string>(categoryParam || 'all')
+  const [addedId, setAddedId] = useState<string | null>(null)
 
+  // Update selected category if URL query parameter changes
+  useEffect(() => {
+    if (categoryParam) {
+      setSelectedCategorySlug(categoryParam)
+    }
+  }, [categoryParam])
+
+  // Real-time categories subscription
+  useEffect(() => {
+    const unsubCats = subscribeToCategories((cats) => {
+      const activeCats = cats.filter((c) => c.active !== false)
+      setCategories(activeCats)
+    })
+    return () => unsubCats()
+  }, [])
+
+  // Real-time products subscription
   useEffect(() => {
     try {
       const db = getFirestoreDB()
       const productsRef = collection(db, 'products')
-      
-      // Real-time listener - Firebase değişikliklerini dinle
+
       const unsubscribe = onSnapshot(
         productsRef,
         (snapshot) => {
-          const productsData = snapshot.docs.map(doc => ({
+          const productsData = snapshot.docs.map((doc) => ({
             id: doc.id,
-            ...doc.data()
-          } as Product))
+            ...doc.data(),
+          })) as Product[]
           setProducts(productsData)
-          setFilteredProducts(productsData)
           setLoading(false)
-          console.log('✅ Products loaded from Firebase:', productsData.length)
         },
         (error) => {
-          console.error('❌ Products fetch error:', error)
-          setProducts([])
-          setFilteredProducts([])
+          console.error('Products fetch error:', error)
           setLoading(false)
         }
       )
-      
       return () => unsubscribe()
     } catch (error) {
-      console.error('❌ Products initialization error:', error)
+      console.error('Products init error:', error)
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    let filtered = products.filter(product =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.description.toLowerCase().includes(searchTerm.toLowerCase())
+  // Dynamic Filtering Logic (Supports categoryId, category slug, and name search)
+  const filteredProducts = products.filter((product) => {
+    // 1. Text Search Filter
+    const matchesSearch =
+      product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.description?.toLowerCase().includes(searchTerm.toLowerCase())
+
+    if (!matchesSearch) return false
+
+    // 2. Category Filter
+    if (selectedCategorySlug === 'all') return true
+
+    // Find the category definition from Firestore categories
+    const targetCat = categories.find(
+      (c) => c.slug === selectedCategorySlug || c.id === selectedCategorySlug
     )
-    
-    // Kategori filtreleme
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter(product => product.category === selectedCategory)
+
+    if (targetCat) {
+      const pCat = (product.category || '').toLowerCase()
+      const pCatId = product.categoryId || ''
+      const targetSlug = targetCat.slug.toLowerCase()
+      const targetId = targetCat.id
+
+      return (
+        pCat === targetSlug ||
+        pCatId === targetId ||
+        pCat === targetId ||
+        (targetSlug === 'otomatik' && (pCat.includes('otomatik') || pCat.includes('elektrikli'))) ||
+        (targetSlug === 'kullan-at' && (pCat.includes('kullan') || pCat.includes('seyahat'))) ||
+        (targetSlug === 'yedek-firca-basliklari' && (pCat.includes('yedek') || pCat.includes('baslik')))
+      )
     }
-    
-    setFilteredProducts(filtered)
-  }, [searchTerm, products, selectedCategory])
+
+    return (
+      (product.category || '').toLowerCase() === selectedCategorySlug.toLowerCase() ||
+      product.categoryId === selectedCategorySlug
+    )
+  })
+
+  const handleAddToCart = (product: Product, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const itemImage = product.images?.[0] || product.image
+    addToCart({
+      productId: product.id,
+      name: product.name,
+      price: product.price,
+      discountPrice: product.discountPrice,
+      image: itemImage,
+    })
+
+    setAddedId(product.id)
+    setTimeout(() => setAddedId(null), 1800)
+  }
 
   return (
-    <div className="pt-32 pb-20 bg-gray-50 min-h-screen">
+    <div className="min-h-screen bg-slate-50 pt-28 pb-24">
       <div className="container-custom section-padding">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-12"
-        >
-          <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-4">
-            Ürünlerimiz
-          </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Tüm modellerimizi keşfedin ve ihtiyacınıza en uygun olanı seçin
-          </p>
-        </motion.div>
+        
+        {/* Header Title & Subtitle */}
+        <div className="text-center max-w-3xl mx-auto mb-12">
+          <motion.span
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-block text-xs font-extrabold uppercase tracking-[0.2em] text-brand-blue bg-brand-softBlue px-4 py-1.5 rounded-full border border-brand-blue/20 mb-4"
+          >
+            Premium Koleksiyon
+          </motion.span>
+          <motion.h1
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-4xl sm:text-5xl font-black text-brand-navy tracking-tight mb-4"
+          >
+            Tüm Diş Fırçaları & Ağız Bakımı
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-slate-600 text-base sm:text-lg"
+          >
+            Yeni nesil 360° sonic otomatik fırçalar, hijyenik kullan-at ürünler ve yedek başlıklar.
+          </motion.p>
+        </div>
 
-        {/* Category Filter */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-8 flex flex-wrap justify-center gap-4"
-        >
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`px-6 py-3 rounded-full font-semibold transition-all duration-200 ${
-              selectedCategory === 'all'
-                ? 'bg-primary-600 text-white shadow-lg scale-105'
-                : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200'
-            }`}
-          >
-            Tümü
-          </button>
-          <button
-            onClick={() => setSelectedCategory('elektrikli-disfircasi')}
-            className={`px-6 py-3 rounded-full font-semibold transition-all duration-200 ${
-              selectedCategory === 'elektrikli-disfircasi'
-                ? 'bg-primary-600 text-white shadow-lg scale-105'
-                : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200'
-            }`}
-          >
-            Elektrikli Diş Fırçaları
-          </button>
-          <button
-            onClick={() => setSelectedCategory('yedek-firca-basliklari')}
-            className={`px-6 py-3 rounded-full font-semibold transition-all duration-200 ${
-              selectedCategory === 'yedek-firca-basliklari'
-                ? 'bg-primary-600 text-white shadow-lg scale-105'
-                : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200'
-            }`}
-          >
-            Yedek Fırça Başlıkları
-          </button>
-        </motion.div>
+        {/* Search & Dynamic Category Filter Bar */}
+        <div className="bg-white rounded-3xl p-4 sm:p-6 shadow-sm border border-slate-200/80 mb-12 space-y-4">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            
+            {/* Search Input */}
+            <div className="relative w-full md:w-80">
+              <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Ürün veya özellik ara..."
+                className="w-full pl-11 pr-4 py-3 bg-slate-50 rounded-2xl text-sm border border-slate-200 focus:outline-none focus:border-brand-blue focus:bg-white transition-colors"
+              />
+            </div>
 
-        {/* Search Bar */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-12 max-w-2xl mx-auto"
-        >
-          <div className="relative">
-            <FiSearch className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Ürün ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 rounded-full border-2 border-gray-200 focus:border-primary-600 focus:outline-none transition-colors text-lg"
-            />
+            {/* Dynamic Category Filter Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 scrollbar-none">
+              <button
+                onClick={() => setSelectedCategorySlug('all')}
+                className={`px-5 py-2.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                  selectedCategorySlug === 'all'
+                    ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/25'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Tüm Ürünler ({products.length})
+              </button>
+
+              {categories.map((cat) => {
+                const isSelected = selectedCategorySlug === cat.slug || selectedCategorySlug === cat.id
+                return (
+                  <button
+                    key={cat.id || cat.slug}
+                    onClick={() => setSelectedCategorySlug(cat.slug)}
+                    className={`px-5 py-2.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                      isSelected
+                        ? 'bg-brand-blue text-white shadow-md shadow-brand-blue/25'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </motion.div>
+        </div>
 
-        {/* Products Grid */}
+        {/* Product Cards Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="animate-pulse">
-                <div className="bg-gray-200 rounded-2xl h-64 mb-4"></div>
-                <div className="bg-gray-200 rounded h-6 w-3/4 mb-2"></div>
-                <div className="bg-gray-200 rounded h-4 w-1/2"></div>
-              </div>
-            ))}
+          <div className="py-24 flex items-center justify-center">
+            <div className="w-12 h-12 border-3 border-brand-blue/20 border-t-brand-blue rounded-full animate-spin" />
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-2xl text-gray-600 mb-4">Ürün bulunamadı</p>
-            <p className="text-gray-500">Farklı bir arama terimi deneyin</p>
+          <div className="py-24 text-center bg-white rounded-3xl border border-slate-200 p-12">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
+              <FiShoppingBag className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-brand-navy mb-2">Aradığınız kriterde ürün bulunamadı</h3>
+            <p className="text-sm text-slate-500 mb-6">Farklı bir arama terimi veya kategori seçmeyi deneyin.</p>
+            <button
+              onClick={() => {
+                setSelectedCategorySlug('all')
+                setSearchTerm('')
+              }}
+              className="btn-primary text-xs py-3 px-6"
+            >
+              Tüm Ürünleri Göster
+            </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 lg:gap-10">
-            {filteredProducts.map((product, index) => (
-              <motion.div
-                key={product.id}
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                className="bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 flex flex-col border border-gray-100"
-              >
-                {/* Ürün Görseli - Oral-B tarzı büyük görsel */}
-                <Link href={`/urunler/${product.id}`}>
-                  <div className="relative bg-gradient-to-br from-gray-50 to-gray-100 aspect-[3/4] flex items-center justify-center overflow-hidden cursor-pointer group">
-                    {getProductImage(product) ? (
-                      <div className="w-full h-full flex items-center justify-center p-6 overflow-hidden">
-                        <img
-                          src={getProductImage(product)}
-                          alt={product.name}
-                          className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <span className="text-9xl opacity-20">🦷</span>
-                      </div>
-                    )}
-                    {/* İndirim Badge */}
-                    {product.discountPrice && product.discountPrice < product.price && (
-                      <div className="absolute top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
-                        %{product.discountPercentage || Math.round(((product.price - product.discountPrice) / product.price) * 100)} İndirim
-                      </div>
-                    )}
-                    {/* Stok Yok Overlay */}
-                    {product.inStock === false && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <div className="bg-red-500 text-white px-6 py-3 rounded-lg font-bold text-lg shadow-xl">
-                          Stokta Yok
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </Link>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 sm:gap-8">
+            {filteredProducts.map((product) => {
+              const productImage = product.images?.[0] || product.image
+              const isAdded = addedId === product.id
+              const discount = product.discountPrice
+                ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
+                : null
 
-                <div className="p-6 flex flex-col flex-grow">
-                  {/* Yıldız Puanı - Oral-B tarzı */}
-                  <div className="mb-3 flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <FiStar
-                        key={star}
-                        className={`w-4 h-4 ${
-                          star <= Math.floor(product.rating || 5)
-                            ? 'text-yellow-400 fill-yellow-400'
-                            : 'text-gray-300'
-                        }`}
-                      />
-                    ))}
-                    <span className="ml-2 text-sm text-gray-600 font-medium">
-                      {(product.rating || 5).toFixed(1)}
-                    </span>
-                  </div>
-
-                  {/* Ürün Adı */}
-                  <Link href={`/urunler/${product.id}`}>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4 hover:text-primary-600 transition-colors cursor-pointer">
-                      {product.name}
-                    </h3>
-                  </Link>
-
-                  {/* Renk Seçenekleri - Oral-B tarzı */}
-                  {product.colors && product.colors.length > 0 && (
-                    <div className="mb-4 flex items-center gap-2 flex-wrap">
-                      {product.colors.map((color, idx) => (
-                        <div
-                          key={idx}
-                          className="w-8 h-8 rounded-full border-2 border-gray-300 shadow-sm hover:scale-110 transition-transform cursor-pointer"
-                          style={{ backgroundColor: color.code }}
-                          title={color.name}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Özellikler Listesi - Oral-B tarzı */}
-                  {product.features && product.features.length > 0 && (
-                    <ul className="mb-6 space-y-2.5 flex-grow">
-                      {product.features.slice(0, 6).map((feature, idx) => (
-                        <li key={idx} className="text-sm text-gray-700 flex items-start">
-                          <span className="text-primary-600 mr-2.5 font-bold text-base leading-none">•</span>
-                          <span className="leading-relaxed">{feature}</span>
-                        </li>
-                      ))}
-                      {product.features.length > 6 && (
-                        <li className="text-sm text-primary-600 font-semibold mt-2">
-                          +{product.features.length - 6} özellik daha
-                        </li>
+              return (
+                <div
+                  key={product.id}
+                  className="group bg-white rounded-[2rem] p-6 border border-slate-200/80 hover:border-brand-blue/40 shadow-sm hover:shadow-xl hover:shadow-slate-200/60 transition-all duration-300 flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Card Top Badges */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      {discount ? (
+                        <span className="text-[11px] font-extrabold text-white bg-brand-green px-3 py-1 rounded-full shadow-xs">
+                          %{discount} İndirim
+                        </span>
+                      ) : product.isPopular ? (
+                        <span className="text-[11px] font-extrabold text-brand-blue bg-brand-softBlue px-3 py-1 rounded-full border border-brand-blue/20">
+                          Öne Çıkan
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                          {product.inStock !== false ? 'Stokta Var' : 'Tükendi'}
+                        </span>
                       )}
-                    </ul>
-                  )}
 
-                  {/* Fiyat - Oral-B tarzı */}
-                  <div className="mb-6 pt-4 border-t-2 border-gray-200">
-                    {product.discountPrice && product.discountPrice < product.price ? (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-baseline gap-3">
-                          <span className="text-3xl font-bold text-primary-600">
-                            {product.discountPrice.toLocaleString('tr-TR')} ₺
-                          </span>
-                          <span className="text-lg text-gray-500 line-through">
+                      <div className="flex items-center gap-1 text-amber-500 text-xs font-bold">
+                        <FiStar className="fill-amber-400 w-3.5 h-3.5" />
+                        <span>4.9</span>
+                      </div>
+                    </div>
+
+                    {/* Product Image Link */}
+                    <Link
+                      href={`/urunler/${product.id}`}
+                      className="relative aspect-square w-full rounded-2xl bg-slate-50 flex items-center justify-center p-4 my-2 overflow-hidden block"
+                    >
+                      {productImage ? (
+                        <Image
+                          src={productImage}
+                          alt={product.name}
+                          fill
+                          className="object-contain p-2 group-hover:scale-108 transition-transform duration-500"
+                          sizes="(max-width: 768px) 100vw, 300px"
+                        />
+                      ) : (
+                        <FiShoppingBag className="w-12 h-12 text-slate-300" />
+                      )}
+                    </Link>
+
+                    {/* Product Title & Info */}
+                    <div className="mt-4">
+                      <Link href={`/urunler/${product.id}`}>
+                        <h3 className="text-base font-bold text-brand-navy group-hover:text-brand-blue transition-colors line-clamp-1 mb-1">
+                          {product.name}
+                        </h3>
+                      </Link>
+                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-4">
+                        {product.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Card Bottom: Price & Add to Cart Action */}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div>
+                      {product.discountPrice ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs text-slate-400 line-through leading-none">
                             {product.price.toLocaleString('tr-TR')} ₺
                           </span>
+                          <span className="text-lg font-black text-brand-green leading-tight">
+                            {product.discountPrice.toLocaleString('tr-TR')} ₺
+                          </span>
                         </div>
-                        <span className="text-xs text-red-600 font-semibold uppercase tracking-wide">İndirimli Fiyat</span>
-                      </div>
-                    ) : (
-                      <span className="text-3xl font-bold text-primary-600">
-                        {product.price.toLocaleString('tr-TR')} ₺
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Stok Durumu */}
-                  {product.inStock === false && (
-                    <div className="mb-4">
-                      <span className="inline-block bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-semibold border border-red-200">
-                        ⚠️ Stokta Yok
-                      </span>
+                      ) : (
+                        <span className="text-lg font-black text-brand-navy">
+                          {product.price.toLocaleString('tr-TR')} ₺
+                        </span>
+                      )}
                     </div>
-                  )}
 
-                  {/* Butonlar - Oral-B tarzı */}
-                  <div className="flex flex-col gap-3 mt-auto">
-                    <Link href={`/urunler/${product.id}`}>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        disabled={product.inStock === false}
-                        className={`w-full py-4 rounded-lg font-bold text-base transition-all shadow-md hover:shadow-lg ${
-                          product.inStock === false
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            : 'bg-primary-600 text-white hover:bg-primary-700'
-                        }`}
-                      >
-                        Şimdi Alışveriş Yapın
-                      </motion.button>
-                    </Link>
-                    <Link href={`/urunler/${product.id}`}>
-                      <button className="w-full py-2 text-primary-600 hover:text-primary-700 font-semibold text-sm transition-colors">
-                        Daha Fazla Bilgi
-                      </button>
-                    </Link>
+                    <button
+                      onClick={(e) => handleAddToCart(product, e)}
+                      disabled={product.inStock === false}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                        isAdded
+                          ? 'bg-brand-green text-white'
+                          : product.inStock === false
+                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          : 'bg-brand-navy hover:bg-brand-blue text-white'
+                      }`}
+                    >
+                      {isAdded ? (
+                        <>
+                          <FiCheck className="w-3.5 h-3.5" />
+                          <span>Eklendi</span>
+                        </>
+                      ) : (
+                        <>
+                          <FiShoppingBag className="w-3.5 h-3.5" />
+                          <span>Sepete Ekle</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
-              </motion.div>
-            ))}
+              )
+            })}
           </div>
         )}
+
       </div>
     </div>
   )
 }
 
-
+export default function ProductsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="w-12 h-12 border-3 border-brand-blue/20 border-t-brand-blue rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <ProductsListContent />
+    </Suspense>
+  )
+}

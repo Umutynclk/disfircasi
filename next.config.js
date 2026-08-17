@@ -1,3 +1,5 @@
+const path = require('path')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
@@ -17,16 +19,19 @@ const nextConfig = {
     ],
   },
 
+  serverExternalPackages: ['firebase', '@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/storage'],
+  transpilePackages: ['three'],
   compress: true,
   poweredByHeader: false,
 
-  // 🔴 EN KRİTİK KISIM – CACHE ve HYDRATION PROBLEMLERİNİ BİTİRİR
   experimental: {
     staleTimes: {
       dynamic: 0,
       static: 0,
     },
   },
+
+
 
   async headers() {
     return [
@@ -48,3 +53,4 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+

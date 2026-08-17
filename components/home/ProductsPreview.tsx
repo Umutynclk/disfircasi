@@ -18,6 +18,7 @@ interface Product {
   description: string
   category?: string
   inStock?: boolean
+  isPopular?: boolean
   colors?: ColorOption[]
 }
 
@@ -50,13 +51,17 @@ export default function ProductsPreview() {
       const unsubscribe = onSnapshot(
         productsRef,
         (snapshot) => {
-          const productsData = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as Product))
-            .filter(product => product.category === 'elektrikli-disfircasi' || !product.category)
-            .slice(0, 3) // İlk 3 ürünü göster
+          const allProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product))
+          // Önce popüler ürünleri filtrele, yoksa kategoriye göre filtrele
+          const popularProducts = allProducts.filter(p => p.isPopular === true)
+          const productsData = popularProducts.length > 0
+            ? popularProducts.slice(0, 3)
+            : allProducts
+              .filter(product => product.category === 'elektrikli-disfircasi' || !product.category)
+              .slice(0, 3)
           setProducts(productsData)
           setLoading(false)
-          console.log('✅ Electric Toothbrushes loaded from Firebase:', productsData.length)
+          console.log('✅ Products loaded from Firebase:', productsData.length, popularProducts.length > 0 ? '(Popular)' : '')
         },
         (error) => {
           console.error('❌ Products fetch error:', error)

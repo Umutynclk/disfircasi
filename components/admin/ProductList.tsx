@@ -16,6 +16,7 @@ interface Product {
   image?: string
   images?: string[]
   inStock?: boolean
+  isPopular?: boolean
   category?: string
 }
 
@@ -114,6 +115,23 @@ export default function ProductList() {
     }
   }
 
+  const handleTogglePopular = async (id: string, currentPopular: boolean) => {
+    try {
+      const db = getFirestoreDB()
+      await updateDoc(doc(db, 'products', id), {
+        isPopular: !currentPopular,
+        updatedAt: new Date()
+      })
+
+      setProducts(products.map(p => 
+        p.id === id ? { ...p, isPopular: !currentPopular } : p
+      ))
+    } catch (error) {
+      console.error('Popüler ürün güncellenirken hata:', error)
+      alert('Popüler ürün güncellenirken bir hata oluştu')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     if (!confirm('Bu ürünü silmek istediğinizden emin misiniz?')) {
       return
@@ -159,6 +177,7 @@ export default function ProductList() {
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fiyat</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Kategori</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Stok</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Popüler</th>
             <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">İşlemler</th>
           </tr>
         </thead>
@@ -242,6 +261,19 @@ export default function ProductList() {
                     {product.inStock ? 'Stokta' : 'Yok'}
                   </button>
                 )}
+              </td>
+              <td className="py-4 px-4">
+                <button
+                  onClick={() => handleTogglePopular(product.id, product.isPopular ?? false)}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors cursor-pointer ${
+                    product.isPopular
+                      ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title={product.isPopular ? 'Popüler ürün - Ana sayfada gösteriliyor' : 'Popüler ürün yap - Ana sayfada gösterilsin'}
+                >
+                  {product.isPopular ? '⭐ Popüler' : 'Popüler Yap'}
+                </button>
               </td>
               <td className="py-4 px-4">
                 <div className="flex items-center justify-end gap-2">

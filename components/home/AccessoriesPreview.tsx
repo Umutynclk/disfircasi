@@ -34,7 +34,6 @@ interface AccessoriesContent {
   title?: string
   subtitle?: string
   buttonText?: string
-  buttonUrl?: string
 }
 
 const getProductImage = (product: Product): string | undefined => {
@@ -50,8 +49,7 @@ export default function AccessoriesPreview() {
   const [content, setContent] = useState<AccessoriesContent>({
     title: 'Yedek Fırça Başlıkları',
     subtitle: 'Diş fırçanız için uygun yedek başlıklar',
-    buttonText: 'Tüm Yedek Başlıkları Görüntüle',
-    buttonUrl: '/urunler?kategori=yedek-firca-basliklari'
+    buttonText: 'Tüm Yedek Başlıkları Görüntüle'
   })
 
   useEffect(() => {
@@ -234,7 +232,7 @@ export default function AccessoriesPreview() {
             className="text-center"
           >
             <Link
-              href={content.buttonUrl || '/urunler?kategori=yedek-firca-basliklari'}
+              href="/urunler?kategori=yedek-firca-basliklari"
               className="inline-flex items-center gap-2 px-8 py-4 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105"
             >
               {content.buttonText || 'Tüm Yedek Başlıkları Görüntüle'}

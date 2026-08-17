@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { getCurrentUser } from '@/lib/firebase/auth'
 import { User } from 'firebase/auth'
 import Link from 'next/link'
-import { FiPackage, FiSettings, FiLogOut, FiImage, FiHome, FiShield, FiEdit3 } from 'react-icons/fi'
+import { FiPackage, FiSettings, FiLogOut, FiImage, FiHome, FiShield, FiEdit3, FiShoppingBag, FiTag, FiGrid } from 'react-icons/fi'
 import { motion } from 'framer-motion'
 
 export default function AdminLayout({
@@ -82,7 +82,19 @@ export default function AdminLayout({
           <Link
             href="/admin"
             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-              pathname === '/admin' || pathname?.startsWith('/admin/urunler')
+              pathname === '/admin'
+                ? 'bg-primary-50 text-primary-600 font-medium'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FiGrid className="w-5 h-5" />
+            Kontrol Paneli
+          </Link>
+
+          <Link
+            href="/admin/urunler"
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              pathname?.startsWith('/admin/urunler')
                 ? 'bg-primary-50 text-primary-600 font-medium'
                 : 'text-gray-700 hover:bg-gray-50'
             }`}
@@ -113,6 +125,30 @@ export default function AdminLayout({
           >
             <FiEdit3 className="w-5 h-5" />
             Site İçeriği
+          </Link>
+
+          <Link
+            href="/admin/siparisler"
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              pathname?.startsWith('/admin/siparisler')
+                ? 'bg-primary-50 text-primary-600 font-medium'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FiShoppingBag className="w-5 h-5" />
+            Siparişler
+          </Link>
+
+          <Link
+            href="/admin/kategoriler"
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              pathname?.startsWith('/admin/kategoriler')
+                ? 'bg-primary-50 text-primary-600 font-medium'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FiTag className="w-5 h-5" />
+            Kategoriler
           </Link>
 
           <Link
@@ -199,6 +235,26 @@ export default function AdminLayout({
                 }`}
               >
                 İçerik
+              </Link>
+              <Link
+                href="/admin/siparisler"
+                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                  pathname?.startsWith('/admin/siparisler')
+                    ? 'bg-primary-50 text-primary-600 font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Siparişler
+              </Link>
+              <Link
+                href="/admin/kategoriler"
+                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                  pathname?.startsWith('/admin/kategoriler')
+                    ? 'bg-primary-50 text-primary-600 font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Kategoriler
               </Link>
               <Link
                 href="/admin/ayarlar"

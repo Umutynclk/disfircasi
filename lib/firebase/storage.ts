@@ -43,3 +43,16 @@ export const deleteFile = async (url: string): Promise<void> => {
   }
 }
 
+export const uploadModel = async (file: File, path: string): Promise<string> => {
+  try {
+    const storageInstance = getStorageInstance();
+    const storageRef = ref(storageInstance, `models/${path}/${Date.now()}_${file.name}`)
+    const snapshot = await uploadBytes(storageRef, file)
+    const downloadURL = await getDownloadURL(snapshot.ref)
+    return downloadURL
+  } catch (error) {
+    console.error('Model yüklenirken hata:', error)
+    throw error
+  }
+}
+

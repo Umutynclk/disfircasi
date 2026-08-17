@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { doc, getDoc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiShoppingCart, FiCheck, FiHeart, FiShare2, FiX } from 'react-icons/fi'
+import { FiShoppingBag, FiCheck, FiShield, FiTruck, FiRefreshCw, FiArrowLeft, FiPlus, FiMinus, FiStar } from 'react-icons/fi'
 import Link from 'next/link'
 import { addToCart } from '@/lib/utils/cart'
-import { getCurrentUser } from '@/lib/firebase/userAuth'
+import dynamic from 'next/dynamic'
+
+const Product3DViewer = dynamic(() => import('@/components/3d/Product3DViewer'), { ssr: false })
 
 interface ColorOption {
   name: string
@@ -27,11 +29,12 @@ interface Product {
   images?: string[]
   image?: string
   video?: string
+  model3dUrl?: string
   description: string
-  features: string[]
-  specifications: Record<string, string>
+  features?: string[]
+  specifications?: Record<string, string>
   inStock?: boolean
-  category: string
+  category?: string
   colors?: ColorOption[]
 }
 
@@ -40,34 +43,25 @@ export default function ProductDetailPage() {
   const router = useRouter()
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedImage, setSelectedImage] = useState(0)
   const [selectedColor, setSelectedColor] = useState<ColorOption | null>(null)
+  const [quantity, setQuantity] = useState(1)
   const [currentPrice, setCurrentPrice] = useState<number>(0)
   const [currentDiscountPrice, setCurrentDiscountPrice] = useState<number | null>(null)
   const [currentImages, setCurrentImages] = useState<string[]>([])
-  const [user, setUser] = useState<any>(null)
-  const [showAuthModal, setShowAuthModal] = useState(false)
-  const [addingToCart, setAddingToCart] = useState(false)
-
-  useEffect(() => {
-    // Kullanıcı kontrolü
-    getCurrentUser().then(setUser)
-  }, [])
+  const [added, setAdded] = useState(false)
 
   useEffect(() => {
     try {
       const db = getFirestoreDB()
       const productRef = doc(db, 'products', params.id as string)
-      
-      // Real-time listener - Firebase değişikliklerini dinle
+
       const unsubscribe = onSnapshot(
         productRef,
         (productSnap) => {
           if (productSnap.exists()) {
             const productData = { id: productSnap.id, ...productSnap.data() } as Product
             setProduct(productData)
-            
-            // İlk rengi seç veya ana görselleri kullan
+
             if (productData.colors && productData.colors.length > 0) {
               const firstColor = productData.colors[0]
               setSelectedColor(firstColor)
@@ -80,463 +74,293 @@ export default function ProductDetailPage() {
               setCurrentPrice(productData.price)
               setCurrentDiscountPrice(productData.discountPrice || null)
             }
-            
-            if (productData.images?.[0] || productData.image) {
-              setSelectedImage(0)
-            }
-            
             setLoading(false)
           } else {
             setLoading(false)
           }
         },
         (error) => {
-          console.error('❌ Product fetch error:', error)
+          console.error('Product fetch error:', error)
           setLoading(false)
         }
       )
-      
+
       return () => unsubscribe()
     } catch (error) {
-      console.error('❌ Product initialization error:', error)
+      console.error('Product init error:', error)
       setLoading(false)
     }
   }, [params.id])
 
-  const handleAddToCart = async () => {
+  const handleColorSelect = (color: ColorOption) => {
+    setSelectedColor(color)
+    if (color.images && color.images.length > 0) {
+      setCurrentImages(color.images)
+    }
+    if (color.price) setCurrentPrice(color.price)
+    if (color.discountPrice !== undefined) setCurrentDiscountPrice(color.discountPrice)
+  }
+
+  const handleAddToCart = () => {
     if (!product) return
 
-    if (!user) {
-      setShowAuthModal(true)
-      return
-    }
-
-    setAddingToCart(true)
-    try {
-      const finalPrice = selectedColor?.price || product.price
-      const finalDiscountPrice = selectedColor?.discountPrice || product.discountPrice
-
+    for (let i = 0; i < quantity; i++) {
       addToCart({
         productId: product.id,
         name: product.name,
-        price: product.price,
-        discountPrice: finalDiscountPrice,
+        price: currentPrice,
+        discountPrice: currentDiscountPrice,
         image: currentImages[0] || product.image,
-        selectedColor: selectedColor ? {
-          name: selectedColor.name,
-          code: selectedColor.code,
-          price: selectedColor.price,
-          discountPrice: selectedColor.discountPrice
-        } : undefined
+        selectedColor: selectedColor
+          ? {
+              name: selectedColor.name,
+              code: selectedColor.code,
+              price: selectedColor.price,
+              discountPrice: selectedColor.discountPrice,
+            }
+          : undefined,
       })
-
-      // Başarı mesajı
-      alert('Ürün sepete eklendi!')
-    } catch (error) {
-      console.error('Sepete ekleme hatası:', error)
-      alert('Ürün sepete eklenirken bir hata oluştu')
-    } finally {
-      setAddingToCart(false)
     }
+
+    setAdded(true)
+    setTimeout(() => setAdded(false), 2000)
+
+    window.dispatchEvent(new CustomEvent('openCartDrawer'))
   }
 
-  // Renk seçildiğinde fiyat ve fotoğrafları güncelle
-  useEffect(() => {
-    if (selectedColor && product) {
-      setCurrentImages(selectedColor.images || product.images || [])
-      setCurrentPrice(selectedColor.price || product.price)
-      setCurrentDiscountPrice(selectedColor.discountPrice || product.discountPrice || null)
-      setSelectedImage(0)
-    } else if (product && !selectedColor) {
-      const images = product.images || (product.image ? [product.image] : [])
-      setCurrentImages(images)
-      setCurrentPrice(product.price)
-      setCurrentDiscountPrice(product.discountPrice || null)
-    }
-  }, [selectedColor, product])
+  const handleBuyNow = () => {
+    handleAddToCart()
+    router.push('/satin-al?sepet=true')
+  }
 
   if (loading) {
     return (
-      <div className="pt-32 pb-20 min-h-screen">
-        <div className="container-custom section-padding">
-          <div className="animate-pulse grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <div className="bg-gray-200 rounded-2xl h-[600px]"></div>
-            <div className="space-y-4">
-              <div className="bg-gray-200 rounded h-12 w-3/4"></div>
-              <div className="bg-gray-200 rounded h-6 w-full"></div>
-              <div className="bg-gray-200 rounded h-6 w-2/3"></div>
-            </div>
-          </div>
-        </div>
+      <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-blue"></div>
       </div>
     )
   }
 
   if (!product) {
     return (
-      <div className="pt-32 pb-20 min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">Ürün bulunamadı</h2>
-          <p className="text-gray-600">Aradığınız ürün mevcut değil.</p>
-        </div>
+      <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex flex-col items-center justify-center text-center px-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Ürün Bulunamadı</h2>
+        <p className="text-slate-500 mb-6">Aradığınız ürün mevcut değil veya kaldırılmış olabilir.</p>
+        <Link
+          href="/urunler"
+          className="px-6 py-3 bg-brand-blue text-white rounded-full text-xs font-bold hover:bg-blue-600 transition-colors"
+        >
+          Tüm Ürünlere Dön
+        </Link>
       </div>
     )
   }
 
+  const isAutomatic = product.category === 'otomatik' || product.name.toLowerCase().includes('otomatik')
+
   return (
-    <div className="pt-32 pb-20 bg-white min-h-screen">
+    <div className="pt-32 pb-24 bg-slate-50 min-h-screen">
       <div className="container-custom section-padding">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-          {/* Image Gallery */}
-          <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="space-y-4"
-          >
-            <div className="relative">
-              <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 shadow-xl group">
-                {currentImages && currentImages[selectedImage] ? (
-                  <img
-                    src={currentImages[selectedImage]}
-                    alt={product.name}
-                    className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <span className="text-9xl">🦷</span>
-                  </div>
-                )}
-              </div>
-              {/* Stok Yok Overlay */}
-              {product.inStock === false && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-2xl pointer-events-none">
-                  <div className="bg-red-500 text-white px-6 py-3 rounded-lg font-semibold text-lg">
-                    Stokta Yok
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            {currentImages && currentImages.length > 1 && (
-                    <div className="grid grid-cols-4 gap-4">
-                      {currentImages.map((image, index) => (
-                        <button
-                          key={index}
-                          onClick={() => setSelectedImage(index)}
-                          className={`aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all group ${
-                            selectedImage === index
-                              ? 'border-primary-600 ring-2 ring-primary-200'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <img
-                            src={image}
-                            alt={`${product.name} ${index + 1}`}
-                            className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300"
-                          />
-                        </button>
-                      ))}
-                    </div>
-            )}
+        {/* Back Link */}
+        <Link
+          href="/urunler"
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-brand-blue transition-colors mb-8"
+        >
+          <FiArrowLeft className="w-4 h-4" /> Tüm Ürünlere Dön
+        </Link>
 
-            {product.video && (
-              <div className="rounded-2xl overflow-hidden shadow-xl">
-                <video
-                  src={product.video}
-                  controls
-                  className="w-full"
-                />
+        {/* Hero Product Detail Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start mb-20">
+          {/* Left Column: 3D Product Interactive Viewer */}
+          <div className="lg:col-span-7 space-y-6">
+            <Product3DViewer
+              model3dUrl={product.model3dUrl}
+              image={currentImages[0] || product.image}
+              images={currentImages}
+              productName={product.name}
+            />
+
+            {/* Thumbnail Carousel if multiple images */}
+            {currentImages.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                {currentImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      const newImgs = [...currentImages]
+                      const temp = newImgs[0]
+                      newImgs[0] = newImgs[idx]
+                      newImgs[idx] = temp
+                      setCurrentImages(newImgs)
+                    }}
+                    className="w-20 h-20 rounded-2xl bg-white p-2 border border-slate-200 flex-shrink-0 hover:border-brand-blue transition-colors overflow-hidden"
+                  >
+                    <img src={img} alt={`Görsel ${idx}`} className="w-full h-full object-contain" />
+                  </button>
+                ))}
               </div>
             )}
-          </motion.div>
+          </div>
 
-          {/* Product Info */}
-          <motion.div
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="space-y-6"
-          >
+          {/* Right Column: Product Configuration & Actions */}
+          <div className="lg:col-span-5 bg-white p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-6">
             <div>
-              <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+              {product.category && (
+                <span className="text-xs font-bold uppercase tracking-widest text-brand-blue bg-brand-softBlue px-3 py-1 rounded-full border border-brand-blue/20">
+                  {product.category}
+                </span>
+              )}
+              <h1 className="text-3xl font-black text-brand-navy tracking-tight mt-3 mb-2">
                 {product.name}
               </h1>
-              {/* Fiyat */}
-              <div className="mb-6">
-                {currentDiscountPrice && currentDiscountPrice < currentPrice ? (
-                  <div className="flex flex-col gap-2 mb-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-4xl font-bold text-primary-600">
-                        {currentDiscountPrice.toLocaleString('tr-TR')} ₺
-                      </span>
-                      <span className="text-xl text-gray-500 line-through">
-                        {currentPrice.toLocaleString('tr-TR')} ₺
-                      </span>
-                      <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-sm font-semibold">
-                        İndirimli Fiyat
-                      </span>
-                    </div>
-                    <span className="text-sm text-red-600 font-medium">
-                      %{product.discountPercentage || Math.round(((currentPrice - currentDiscountPrice) / currentPrice) * 100)} indirim
+
+              {/* Rating */}
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-4">
+                <div className="flex items-center text-amber-400">
+                  <FiStar className="fill-current w-4 h-4" />
+                  <FiStar className="fill-current w-4 h-4" />
+                  <FiStar className="fill-current w-4 h-4" />
+                  <FiStar className="fill-current w-4 h-4" />
+                  <FiStar className="fill-current w-4 h-4" />
+                </div>
+                <span>5.0 (48+ Klinik İnceleme)</span>
+              </div>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-3 my-4">
+                {currentDiscountPrice ? (
+                  <>
+                    <span className="text-3xl font-black text-brand-blue">
+                      {currentDiscountPrice.toLocaleString('tr-TR')} ₺
                     </span>
-                  </div>
+                    <span className="text-sm text-slate-400 line-through">
+                      {currentPrice.toLocaleString('tr-TR')} ₺
+                    </span>
+                  </>
                 ) : (
-                  <span className="text-4xl font-bold text-primary-600 block mb-4">
+                  <span className="text-3xl font-black text-brand-navy">
                     {currentPrice.toLocaleString('tr-TR')} ₺
                   </span>
                 )}
-                {product.inStock === false ? (
-                  <span className="inline-block px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-semibold">
-                    ⚠️ Stokta Yok
-                  </span>
-                ) : (
-                  <span className="inline-block px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold flex items-center gap-2">
-                    <FiCheck className="w-4 h-4" />
-                    Stokta Var
-                  </span>
-                )}
               </div>
 
-              {/* Renk Seçenekleri */}
-              {product.colors && product.colors.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Renk Seçenekleri</h3>
-                  <div className="flex flex-wrap gap-3">
-                    {product.colors.map((color, index) => {
-                      const colorImages = color.images && color.images.length > 0 ? color.images : []
-                      const hasImages = colorImages.length > 0
-                      
-                      return (
-                        <div key={index} className="relative group">
-                          <button
-                            onClick={() => setSelectedColor(color)}
-                            onMouseEnter={() => {
-                              // Hover yapıldığında o rengin fotoğraflarını göster
-                              if (hasImages) {
-                                setCurrentImages(colorImages)
-                                setSelectedImage(0)
-                              }
-                            }}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all relative ${
-                              selectedColor?.code === color.code
-                                ? 'border-primary-600 ring-2 ring-primary-200 bg-primary-50'
-                                : 'border-gray-200 hover:border-gray-300'
-                            }`}
-                          >
-                            <div
-                              className="w-6 h-6 rounded-full border-2 border-gray-300"
-                              style={{ backgroundColor: color.code }}
-                            />
-                            <span className="font-medium text-gray-700">{color.name}</span>
-                            {hasImages && (
-                              <span className="text-xs text-gray-500 ml-1">({colorImages.length})</span>
-                            )}
-                          </button>
-                          
-                          {/* Hover Preview - Renk fotoğraflarını göster */}
-                          {hasImages && (
-                            <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
-                              <div className="text-xs font-semibold text-gray-700 mb-2">{color.name} Görselleri</div>
-                              <div className="grid grid-cols-3 gap-2">
-                                {colorImages.slice(0, 6).map((img, imgIndex) => (
-                                  <img
-                                    key={imgIndex}
-                                    src={img}
-                                    alt={`${color.name} ${imgIndex + 1}`}
-                                    className="w-full h-16 object-cover rounded"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+              <p className="text-xs text-slate-600 leading-relaxed border-t border-b border-slate-100 py-4">
+                {product.description}
+              </p>
             </div>
 
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Açıklama</h3>
-              <p className="text-gray-600 leading-relaxed">{product.description}</p>
-            </div>
-
-            {product.features && product.features.length > 0 && (
+            {/* Color Variants Selector */}
+            {product.colors && product.colors.length > 0 && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Özellikler</h3>
-                <ul className="space-y-3">
-                  {product.features.map((feature, index) => (
-                    <motion.li
-                      key={index}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      className="flex items-center gap-3"
+                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-3">
+                  Renk Seçeneği: <span className="text-brand-blue">{selectedColor?.name}</span>
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  {product.colors.map((color, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleColorSelect(color)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-xs font-bold transition-all ${
+                        selectedColor?.code === color.code
+                          ? 'border-brand-blue bg-brand-softBlue text-brand-blue shadow-xs'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
                     >
-                      <div className="flex-shrink-0 w-6 h-6 bg-primary-600 rounded-full flex items-center justify-center">
-                        <FiCheck className="w-4 h-4 text-white" />
-                      </div>
-                      <span className="text-gray-700">{feature}</span>
-                    </motion.li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {product.specifications && Object.keys(product.specifications).length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Teknik Özellikler</h3>
-                <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                  {Object.entries(product.specifications).map(([key, value]) => (
-                    <div key={key} className="flex justify-between py-2 border-b border-gray-200 last:border-0">
-                      <span className="text-gray-600 font-medium">{key}:</span>
-                      <span className="text-gray-900">{value}</span>
-                    </div>
+                      <span
+                        className="w-4 h-4 rounded-full border border-black/20"
+                        style={{ backgroundColor: color.code }}
+                      />
+                      <span>{color.name}</span>
+                    </button>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="flex gap-4 pt-4">
-              <Link href={`/satin-al?urun=${product.id}`} className="flex-1">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  disabled={product.inStock === false}
-                  className={`w-full px-8 py-4 rounded-full font-semibold flex items-center justify-center gap-3 transition-all ${
-                    product.inStock !== false
-                      ? 'bg-primary-600 text-white hover:bg-primary-700 shadow-lg hover:shadow-xl'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
+            {/* Quantity Selector */}
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Adet</span>
+              <div className="flex items-center gap-3 bg-slate-100 border border-slate-200 rounded-full px-3 py-1.5">
+                <button
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  className="text-slate-600 hover:text-slate-900 p-1"
                 >
-                  <FiShoppingCart className="w-5 h-5" />
-                  {product.inStock === false ? 'Stokta Yok' : 'Şimdi Satın Alın'}
-                </motion.button>
-              </Link>
-              
-              <motion.button
+                  <FiMinus className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-sm font-bold text-slate-900 w-6 text-center">{quantity}</span>
+                <button
+                  onClick={() => setQuantity(quantity + 1)}
+                  className="text-slate-600 hover:text-slate-900 p-1"
+                >
+                  <FiPlus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* CTA Buttons */}
+            <div className="space-y-3 pt-4">
+              <button
                 onClick={handleAddToCart}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={product.inStock === false || addingToCart}
-                className={`flex-1 px-8 py-4 rounded-full font-semibold flex items-center justify-center gap-3 transition-all ${
-                  product.inStock !== false
-                    ? 'bg-white text-primary-600 border-2 border-primary-600 hover:bg-primary-50 shadow-lg hover:shadow-xl'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                className={`w-full py-4 rounded-full font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
+                  added
+                    ? 'bg-brand-green text-white scale-102'
+                    : 'bg-brand-blue text-white hover:bg-blue-600 hover:shadow-brand-blue/30'
                 }`}
               >
-                <FiShoppingCart className="w-5 h-5" />
-                {addingToCart ? 'Ekleniyor...' : 'Sepete Ekle'}
-              </motion.button>
-              
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-4 rounded-full border-2 border-gray-300 hover:border-primary-600 hover:bg-primary-50 transition-colors"
+                {added ? (
+                  <>
+                    <FiCheck className="w-5 h-5" />
+                    <span>Sepete Eklendi!</span>
+                  </>
+                ) : (
+                  <>
+                    <FiShoppingBag className="w-5 h-5" />
+                    <span>Sepete Ekle</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleBuyNow}
+                className="w-full py-4 bg-brand-navy text-white rounded-full font-bold text-sm hover:bg-slate-900 transition-colors flex items-center justify-center"
               >
-                <FiHeart className="w-5 h-5 text-gray-700" />
-              </motion.button>
-              
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-4 rounded-full border-2 border-gray-300 hover:border-primary-600 hover:bg-primary-50 transition-colors"
-              >
-                <FiShare2 className="w-5 h-5 text-gray-700" />
-              </motion.button>
+                Hemen Satın Al
+              </button>
             </div>
 
-            {/* Auth Modal */}
-            <AnimatePresence>
-              {showAuthModal && (
-                <>
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => setShowAuthModal(false)}
-                    className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-                  >
-                    <motion.div
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.9, opacity: 0 }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-white rounded-2xl p-8 max-w-md w-full"
-                    >
-                      <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-2xl font-bold text-gray-900">Giriş Yapın</h3>
-                        <button
-                          onClick={() => setShowAuthModal(false)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <FiX className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                      <p className="text-gray-600 mb-6">
-                        Sepete ürün eklemek için giriş yapmanız veya üye olmanız gerekmektedir.
-                      </p>
-
-                      <div className="space-y-3">
-                        <Link href="/giris" className="block">
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => setShowAuthModal(false)}
-                            className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors"
-                          >
-                            Giriş Yap / Üye Ol
-                          </motion.button>
-                        </Link>
-                        
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={async () => {
-                            setShowAuthModal(false)
-                            // Üye olmadan devam et - sepete ekle
-                            setAddingToCart(true)
-                            try {
-                              const finalPrice = selectedColor?.price || product!.price
-                              const finalDiscountPrice = selectedColor?.discountPrice || product!.discountPrice
-
-                              addToCart({
-                                productId: product!.id,
-                                name: product!.name,
-                                price: product!.price,
-                                discountPrice: finalDiscountPrice,
-                                image: currentImages[0] || product!.image,
-                                selectedColor: selectedColor ? {
-                                  name: selectedColor.name,
-                                  code: selectedColor.code,
-                                  price: selectedColor.price,
-                                  discountPrice: selectedColor.discountPrice
-                                } : undefined
-                              })
-
-                              alert('Ürün sepete eklendi!')
-                            } catch (error) {
-                              console.error('Sepete ekleme hatası:', error)
-                              alert('Ürün sepete eklenirken bir hata oluştu')
-                            } finally {
-                              setAddingToCart(false)
-                            }
-                          }}
-                          className="w-full px-6 py-3 bg-gray-100 text-gray-900 rounded-lg font-semibold hover:bg-gray-200 transition-colors"
-                        >
-                          Üye Olmadan Devam Et
-                        </motion.button>
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </motion.div>
+            {/* Guarantee Pills */}
+            <div className="grid grid-cols-3 gap-2 pt-6 border-t border-slate-100 text-[11px] text-slate-500 font-medium text-center">
+              <div className="p-2 rounded-xl bg-slate-50 flex flex-col items-center gap-1">
+                <FiTruck className="w-4 h-4 text-brand-blue" />
+                <span>Ücretsiz Kargo</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-50 flex flex-col items-center gap-1">
+                <FiShield className="w-4 h-4 text-brand-green" />
+                <span>2 Yıl Garanti</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-50 flex flex-col items-center gap-1">
+                <FiRefreshCw className="w-4 h-4 text-cyan-500" />
+                <span>14 Gün İade</span>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Product Scroll Story & Specifications */}
+        {product.features && product.features.length > 0 && (
+          <div className="bg-white p-8 md:p-12 rounded-3xl border border-slate-200/80 shadow-xs max-w-4xl mx-auto">
+            <h3 className="text-2xl font-bold text-brand-navy mb-6">Öne Çıkan Özellikler</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {product.features.map((feature, idx) => (
+                <div key={idx} className="flex items-start gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                  <FiCheck className="w-5 h-5 text-brand-green flex-shrink-0 mt-0.5" />
+                  <span className="text-xs text-slate-700 font-medium">{feature}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
-

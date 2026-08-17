@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { FiShoppingCart, FiTrash2, FiPlus, FiMinus, FiArrowLeft, FiArrowRight } from 'react-icons/fi'
+import { FiShoppingBag, FiTrash2, FiPlus, FiMinus, FiArrowLeft, FiArrowRight, FiShield } from 'react-icons/fi'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getCart, removeFromCart, updateCartItemQuantity, getCartTotal, clearCart, CartItem } from '@/lib/utils/cart'
@@ -21,19 +21,16 @@ export default function CartPage() {
     const loadCart = () => {
       setCart(getCart())
     }
-    
+
     loadCart()
-    
-    // Cart update event listener
+
     const handleCartUpdate = () => {
       loadCart()
     }
     window.addEventListener('cartUpdated', handleCartUpdate)
-    
-    // User check
+
     getCurrentUser().then(setUser)
-    
-    // Kargo ücretini yükle
+
     const loadShippingFee = async () => {
       try {
         const db = getFirestoreDB()
@@ -47,9 +44,9 @@ export default function CartPage() {
       }
     }
     loadShippingFee()
-    
+
     setLoading(false)
-    
+
     return () => {
       window.removeEventListener('cartUpdated', handleCartUpdate)
     }
@@ -71,38 +68,32 @@ export default function CartPage() {
 
   if (loading) {
     return (
-      <div className="pt-32 pb-20 min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+      <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-blue"></div>
       </div>
     )
   }
 
   if (cart.length === 0) {
     return (
-      <div className="pt-32 pb-20 min-h-screen bg-gradient-to-b from-white to-gray-50">
+      <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="container-custom section-padding">
-          <div className="max-w-2xl mx-auto text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl shadow-lg p-12"
-            >
-              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <FiShoppingCart className="w-12 h-12 text-gray-400" />
-              </div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">Sepetiniz Boş</h2>
-              <p className="text-gray-600 mb-8">Sepetinize henüz ürün eklemediniz.</p>
-              <Link href="/urunler">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="px-8 py-4 bg-primary-600 text-white rounded-full font-semibold flex items-center gap-2 mx-auto hover:bg-primary-700 transition-colors"
-                >
-                  <FiArrowRight className="w-5 h-5" />
-                  Alışverişe Başla
-                </motion.button>
-              </Link>
-            </motion.div>
+          <div className="max-w-xl mx-auto text-center bg-white rounded-3xl border border-slate-200/80 p-12 shadow-xs">
+            <div className="w-20 h-20 bg-brand-softBlue rounded-full flex items-center justify-center mx-auto mb-6 text-brand-blue">
+              <FiShoppingBag className="w-10 h-10" />
+            </div>
+            <h2 className="text-3xl font-black text-brand-navy mb-3">Sepetiniz Boş</h2>
+            <p className="text-slate-500 text-sm mb-8">Sepetinize henüz bir ağız bakım ürünü eklemediniz.</p>
+            <Link href="/urunler">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 bg-brand-blue text-white rounded-full font-bold text-xs uppercase tracking-wider flex items-center gap-2 mx-auto hover:bg-blue-600 transition-colors shadow-md shadow-brand-blue/20"
+              >
+                <span>Ürünleri Keşfet</span>
+                <FiArrowRight className="w-4 h-4" />
+              </motion.button>
+            </Link>
           </div>
         </div>
       </div>
@@ -110,24 +101,25 @@ export default function CartPage() {
   }
 
   return (
-    <div className="pt-32 pb-20 min-h-screen bg-gradient-to-b from-white to-gray-50">
+    <div className="pt-32 pb-24 min-h-screen bg-slate-50">
       <div className="container-custom section-padding">
-        <motion.button
+        <button
           onClick={() => router.back()}
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-2 text-gray-600 hover:text-primary-600 mb-8 transition-colors"
+          className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-brand-blue mb-8 transition-colors"
         >
-          <FiArrowLeft className="w-5 h-5" />
+          <FiArrowLeft className="w-4 h-4" />
           Geri Dön
-        </motion.button>
+        </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Cart Items */}
+          {/* Cart Items List */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Sepetim</h2>
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-xs">
+              <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+                <div>
+                  <h2 className="text-2xl font-black text-brand-navy">Alışveriş Sepetim</h2>
+                  <p className="text-xs text-slate-500 mt-1">{cart.reduce((a, b) => a + b.quantity, 0)} Ürün</p>
+                </div>
                 <button
                   onClick={() => {
                     if (confirm('Sepeti temizlemek istediğinize emin misiniz?')) {
@@ -135,7 +127,7 @@ export default function CartPage() {
                       setCart([])
                     }
                   }}
-                  className="text-sm text-red-600 hover:text-red-700 font-medium"
+                  className="text-xs font-bold text-red-500 hover:text-red-600 transition-colors"
                 >
                   Sepeti Temizle
                 </button>
@@ -149,82 +141,60 @@ export default function CartPage() {
                   return (
                     <motion.div
                       key={item.id}
-                      initial={{ opacity: 0, y: 20 }}
+                      layout
+                      initial={{ opacity: 0, y: 15 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="flex gap-4 p-4 border-2 border-gray-100 rounded-xl hover:border-primary-200 transition-colors"
+                      className="flex flex-col sm:flex-row gap-4 p-4 border border-slate-200/80 rounded-2xl bg-slate-50/50 hover:border-brand-blue/30 transition-colors"
                     >
-                      <div className="w-24 h-24 bg-gradient-to-br from-primary-100 to-primary-200 rounded-lg overflow-hidden flex-shrink-0">
+                      <div className="w-24 h-24 bg-white rounded-xl border border-slate-200/60 p-2 flex items-center justify-center flex-shrink-0 overflow-hidden">
                         {item.image ? (
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="w-full h-full object-contain"
-                          />
+                          <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
                         ) : (
-                          <div className="flex items-center justify-center h-full">
-                            <span className="text-3xl">🦷</span>
-                          </div>
+                          <span className="text-2xl">🦷</span>
                         )}
                       </div>
 
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900 mb-1">{item.name}</h3>
-                        {item.selectedColor && (
-                          <p className="text-sm text-gray-600 mb-2">
-                            Renk: {item.selectedColor.name}
-                          </p>
-                        )}
-                        <div className="flex items-center justify-between mt-2">
-                          <div>
-                            {item.discountPrice || item.selectedColor?.discountPrice ? (
-                              <div className="flex items-center gap-2">
-                                <span className="text-lg font-bold text-primary-600">
-                                  {itemPrice.toLocaleString('tr-TR')} ₺
-                                </span>
-                                <span className="text-sm text-gray-400 line-through">
-                                  {(item.selectedColor?.price || item.price).toLocaleString('tr-TR')} ₺
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-lg font-bold text-primary-600">
-                                {itemPrice.toLocaleString('tr-TR')} ₺
-                              </span>
-                            )}
+                      <div className="flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <h3 className="font-bold text-gray-900 text-base">{item.name}</h3>
+                            <button
+                              onClick={() => handleRemove(item.id)}
+                              className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                            >
+                              <FiTrash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end justify-between">
-                        <button
-                          onClick={() => handleRemove(item.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        >
-                          <FiTrash2 className="w-5 h-5" />
-                        </button>
-
-                        <div className="flex items-center gap-2 border-2 border-gray-200 rounded-lg">
-                          <button
-                            onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                            className="p-2 hover:bg-gray-100 transition-colors"
-                          >
-                            <FiMinus className="w-4 h-4" />
-                          </button>
-                          <span className="px-4 py-2 font-semibold text-gray-900 min-w-[3rem] text-center">
-                            {item.quantity}
-                          </span>
-                          <button
-                            onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                            className="p-2 hover:bg-gray-100 transition-colors"
-                          >
-                            <FiPlus className="w-4 h-4" />
-                          </button>
+                          {item.selectedColor && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Renk: <span className="font-semibold text-slate-800">{item.selectedColor.name}</span>
+                            </p>
+                          )}
                         </div>
 
-                        <div className="text-right mt-2">
-                          <p className="text-sm text-gray-600">Toplam</p>
-                          <p className="text-lg font-bold text-primary-600">
-                            {itemTotal.toLocaleString('tr-TR')} ₺
-                          </p>
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-full px-3 py-1">
+                            <button
+                              onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                              className="text-slate-500 hover:text-slate-900 p-1"
+                            >
+                              <FiMinus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-xs font-bold text-slate-900 w-6 text-center">{item.quantity}</span>
+                            <button
+                              onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                              className="text-slate-500 hover:text-slate-900 p-1"
+                            >
+                              <FiPlus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-xs text-slate-400">Birim Tutar</p>
+                            <p className="text-base font-extrabold text-brand-blue">
+                              {itemTotal.toLocaleString('tr-TR')} ₺
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -234,63 +204,54 @@ export default function CartPage() {
             </div>
           </div>
 
-          {/* Order Summary */}
+          {/* Summary Sidebar */}
           <div className="lg:col-span-1">
-            <motion.div
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="bg-white rounded-2xl shadow-lg p-6 sticky top-32"
-            >
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Sipariş Özeti</h2>
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-xs sticky top-32 space-y-6">
+              <h3 className="text-xl font-black text-brand-navy pb-4 border-b border-slate-100">Sipariş Özeti</h3>
 
-              <div className="space-y-4 mb-6">
-                <div className="flex justify-between text-gray-700">
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between text-slate-600">
                   <span>Ara Toplam</span>
-                  <span className="font-semibold">{subtotal.toLocaleString('tr-TR')} ₺</span>
+                  <span className="font-bold text-slate-900">{subtotal.toLocaleString('tr-TR')} ₺</span>
                 </div>
-                <div className="flex justify-between text-gray-700">
+                <div className="flex justify-between text-slate-600">
                   <span>Kargo</span>
-                  <span className="font-semibold">
-                    {shipping === 0 ? 'Ücretsiz' : `${shipping.toLocaleString('tr-TR')} ₺`}
+                  <span className="font-bold text-brand-green">
+                    {shipping === 0 ? 'Ücretsiz Kargo' : `${shipping.toLocaleString('tr-TR')} ₺`}
                   </span>
                 </div>
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between text-lg font-bold text-gray-900">
-                    <span>Toplam</span>
-                    <span className="text-primary-600">{total.toLocaleString('tr-TR')} ₺</span>
-                  </div>
+                <div className="pt-4 border-t border-slate-100 flex justify-between items-baseline">
+                  <span className="font-bold text-slate-900 text-base">Toplam</span>
+                  <span className="text-2xl font-black text-brand-blue">{total.toLocaleString('tr-TR')} ₺</span>
                 </div>
               </div>
 
-              <motion.button
+              <div className="p-3 bg-brand-softBlue rounded-2xl border border-brand-blue/20 flex items-center gap-2 text-xs text-brand-blue font-semibold">
+                <FiShield className="w-5 h-5 flex-shrink-0" />
+                <span>256-Bit SSL Şifreleme ile Güvenli Alışveriş</span>
+              </div>
+
+              <button
                 onClick={() => {
-                  // Sepetteki ürünleri localStorage'a kaydet ve ödeme sayfasına yönlendir
                   if (typeof window !== 'undefined') {
                     localStorage.setItem('checkout_cart', JSON.stringify(cart))
-                    router.push('/odeme')
+                    router.push('/satin-al?sepet=true')
                   }
                 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full px-6 py-4 bg-primary-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-primary-700 transition-colors shadow-lg hover:shadow-xl"
+                className="w-full py-4 bg-gradient-to-r from-brand-blue to-blue-600 text-white font-bold text-sm rounded-full shadow-lg shadow-brand-blue/30 hover:scale-102 transition-transform flex items-center justify-center gap-2"
               >
-                <FiShoppingCart className="w-5 h-5" />
-                Siparişi Tamamla
-              </motion.button>
+                <span>Ödemeye Geç</span>
+                <FiArrowRight className="w-4 h-4" />
+              </button>
 
-              <Link href="/urunler">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full mt-4 px-6 py-3 bg-gray-100 text-gray-900 rounded-lg font-semibold hover:bg-gray-200 transition-colors"
-                >
-                  Alışverişe Devam Et
-                </motion.button>
+              <Link href="/urunler" className="block text-center text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors pt-2">
+                Alışverişe Devam Et
               </Link>
-            </motion.div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   )
 }
+

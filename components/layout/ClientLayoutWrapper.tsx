@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Navbar from './Navbar'
 import Footer from './Footer'
+import SmoothScrollProvider from '@/components/animation/SmoothScrollProvider'
+import CartDrawer from '@/components/cart/CartDrawer'
 
 export default function ClientLayoutWrapper({
   children,
@@ -23,23 +25,19 @@ export default function ClientLayoutWrapper({
     }
   }, [pathname])
   
-  // Admin sayfalarında Navbar ve Footer gösterme (sadece client-side'da)
-  // İlk render'da her zaman normal layout'u göster (hydration uyumu için)
-  // mounted kontrolü hydration hatasını önler
   if (mounted && isAdmin) {
     return <>{children}</>
   }
 
-  // Normal sayfalar için Navbar ve Footer göster
-  // İlk render'da da bu yapıyı göster (hydration uyumu için)
   return (
-    <>
+    <SmoothScrollProvider>
       <Navbar />
-      <main className="min-h-screen">
+      <main className="min-h-screen relative overflow-hidden">
         {children}
       </main>
       <Footer />
-    </>
+      <CartDrawer />
+    </SmoothScrollProvider>
   )
 }
 

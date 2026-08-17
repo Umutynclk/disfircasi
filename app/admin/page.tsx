@@ -2,40 +2,285 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { FiPlus } from 'react-icons/fi'
-import ProductList from '@/components/admin/ProductList'
+import { useEffect, useState } from 'react'
+import { collection, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore'
+import { getFirestoreDB } from '@/firebase/config'
+import {
+  FiPlus, FiShoppingBag, FiPackage, FiTrendingUp, FiUsers,
+  FiArrowRight, FiClock, FiTruck, FiCheck, FiAlertCircle,
+  FiTag, FiEdit3, FiImage,
+} from 'react-icons/fi'
+
+interface Order {
+  id: string
+  orderNumber?: string
+  status: string
+  total: number
+  createdAt: string
+  customer: { name: string; email: string }
+}
+
+interface Product {
+  id: string
+  name: string
+  price: number
+  stock?: number
+}
+
+const STATUS_STYLE: Record<string, { color: string; bg: string; label: string; icon: any }> = {
+  pending:    { color: 'text-amber-700',  bg: 'bg-amber-50 border-amber-200',  label: 'Bekliyor',      icon: FiClock },
+  processing: { color: 'text-blue-700',   bg: 'bg-blue-50 border-blue-200',    label: 'Hazırlanıyor',  icon: FiPackage },
+  shipped:    { color: 'text-violet-700', bg: 'bg-violet-50 border-violet-200', label: 'Kargoda',       icon: FiTruck },
+  delivered:  { color: 'text-emerald-700',bg: 'bg-emerald-50 border-emerald-200',label: 'Teslim Edildi',icon: FiCheck },
+  cancelled:  { color: 'text-red-700',    bg: 'bg-red-50 border-red-200',      label: 'İptal Edildi',  icon: FiAlertCircle },
+}
 
 export default function AdminDashboard() {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [loadingOrders, setLoadingOrders] = useState(true)
+  const [loadingProducts, setLoadingProducts] = useState(true)
+
+  useEffect(() => {
+    const db = getFirestoreDB()
+
+    // Subscribe to recent orders
+    const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(50))
+    const unsub1 = onSnapshot(ordersQ, (snap) => {
+      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order)))
+      setLoadingOrders(false)
+    })
+
+    // Subscribe to products
+    const productsQ = query(collection(db, 'products'))
+    const unsub2 = onSnapshot(productsQ, (snap) => {
+      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)))
+      setLoadingProducts(false)
+    })
+
+    return () => { unsub1(); unsub2() }
+  }, [])
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '-'
+    try {
+      const d = new Date(dateStr)
+      const now = new Date()
+      const diff = now.getTime() - d.getTime()
+      const minutes = Math.floor(diff / 60000)
+      const hours = Math.floor(diff / 3600000)
+      const days = Math.floor(diff / 86400000)
+
+      if (minutes < 1) return 'Az önce'
+      if (minutes < 60) return `${minutes} dk önce`
+      if (hours < 24) return `${hours} sa önce`
+      if (days < 7) return `${days} gün önce`
+      return new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'short' }).format(d)
+    } catch {
+      return '-'
+    }
+  }
+
+  const formatPrice = (n: number) =>
+    new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n || 0)
+
+  // Stats
+  const stats = {
+    totalOrders: orders.length,
+    pendingOrders: orders.filter((o) => o.status === 'pending').length,
+    processingOrders: orders.filter((o) => o.status === 'processing').length,
+    shippedOrders: orders.filter((o) => o.status === 'shipped').length,
+    revenue: orders
+      .filter((o) => o.status !== 'cancelled')
+      .reduce((s, o) => s + (o.total || 0), 0),
+    todayRevenue: orders
+      .filter((o) => {
+        const today = new Date(); today.setHours(0,0,0,0)
+        return o.status !== 'cancelled' && new Date(o.createdAt) >= today
+      })
+      .reduce((s, o) => s + (o.total || 0), 0),
+    totalProducts: products.length,
+    lowStock: products.filter((p) => (p.stock || 0) < 5).length,
+  }
+
+  const recentOrders = orders.slice(0, 8)
+
+  const QUICK_LINKS = [
+    { icon: FiPlus,      label: 'Yeni Ürün Ekle',   href: '/admin/urunler/yeni',  color: 'from-primary-500 to-primary-600' },
+    { icon: FiShoppingBag, label: 'Siparişleri Gör', href: '/admin/siparisler',  color: 'from-violet-500 to-violet-600' },
+    { icon: FiTag,       label: 'Kategoriler',        href: '/admin/kategoriler', color: 'from-emerald-500 to-emerald-600' },
+    { icon: FiEdit3,     label: 'Site İçeriği',       href: '/admin/icerik',      color: 'from-amber-500 to-amber-600' },
+    { icon: FiImage,     label: 'Medya Kütüphanesi',  href: '/admin/medya',       color: 'from-rose-500 to-rose-600' },
+  ]
+
+  const cardVariants = {
+    hidden: { opacity: 0, y: 16 },
+    visible: (i: number) => ({ opacity: 1, y: 0, transition: { delay: i * 0.06, duration: 0.4 } }),
+  }
+
   return (
-    <div className="p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6 lg:mb-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Ürün Yönetimi</h1>
-              <p className="text-gray-600">Ürünlerinizi ekleyin, düzenleyin ve yönetin</p>
-            </div>
-            <Link href="/admin/urunler/yeni">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-semibold shadow-lg hover:shadow-xl"
-              >
-                <FiPlus className="w-5 h-5" />
-                Yeni Ürün Ekle
-              </motion.button>
-            </Link>
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Kontrol Paneli</h1>
+            <p className="text-gray-500 mt-1">
+              {new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+            Canlı Veri
           </div>
         </div>
+      </div>
 
-        {/* Products Table */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <ProductList />
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {[
+          {
+            label: 'Toplam Sipariş',
+            value: loadingOrders ? '—' : stats.totalOrders,
+            sub: `${stats.pendingOrders} bekliyor`,
+            icon: FiShoppingBag,
+            color: 'text-violet-600',
+            bg: 'bg-violet-50',
+            border: 'border-violet-100',
+          },
+          {
+            label: 'Toplam Gelir',
+            value: loadingOrders ? '—' : formatPrice(stats.revenue),
+            sub: `Bugün: ${formatPrice(stats.todayRevenue)}`,
+            icon: FiTrendingUp,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50',
+            border: 'border-emerald-100',
+          },
+          {
+            label: 'Toplam Ürün',
+            value: loadingProducts ? '—' : stats.totalProducts,
+            sub: stats.lowStock > 0 ? `${stats.lowStock} düşük stok` : 'Stok sağlıklı',
+            icon: FiPackage,
+            color: 'text-primary-600',
+            bg: 'bg-primary-50',
+            border: 'border-primary-100',
+          },
+          {
+            label: 'Kargoda',
+            value: loadingOrders ? '—' : stats.shippedOrders,
+            sub: `${stats.processingOrders} hazırlanıyor`,
+            icon: FiTruck,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50',
+            border: 'border-amber-100',
+          },
+        ].map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            custom={i}
+            initial="hidden"
+            animate="visible"
+            variants={cardVariants}
+            className={`bg-white rounded-2xl border ${stat.border} p-5 shadow-sm`}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-10 h-10 ${stat.bg} rounded-xl flex items-center justify-center`}>
+                <stat.icon className={`w-5 h-5 ${stat.color}`} />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+            <p className="text-sm text-gray-500 mt-0.5">{stat.label}</p>
+            <p className="text-xs text-gray-400 mt-1">{stat.sub}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Quick Links */}
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Hızlı İşlemler</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {QUICK_LINKS.map((link, i) => (
+            <motion.div
+              key={link.href}
+              custom={i + 4}
+              initial="hidden"
+              animate="visible"
+              variants={cardVariants}
+            >
+              <Link href={link.href}>
+                <div className="group bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer text-center">
+                  <div className={`w-10 h-10 bg-gradient-to-br ${link.color} rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform`}>
+                    <link.icon className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="text-xs font-medium text-gray-700 leading-tight">{link.label}</p>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
         </div>
       </div>
+
+      {/* Recent Orders */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900">Son Siparişler</h2>
+          <Link
+            href="/admin/siparisler"
+            className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium"
+          >
+            Tümünü Gör
+            <FiArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {loadingOrders ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+          </div>
+        ) : recentOrders.length === 0 ? (
+          <div className="text-center py-12">
+            <FiShoppingBag className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 text-sm">Henüz sipariş yok</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {recentOrders.map((order) => {
+              const cfg = STATUS_STYLE[order.status] || STATUS_STYLE.pending
+              const StatusIcon = cfg.icon
+              return (
+                <Link key={order.id} href="/admin/siparisler">
+                  <div className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors cursor-pointer">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${cfg.bg}`}>
+                      <StatusIcon className={`w-4 h-4 ${cfg.color}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900">
+                        {order.customer?.name || 'Anonim'}
+                      </p>
+                      <p className="text-xs text-gray-500 font-mono">
+                        #{order.orderNumber || order.id.slice(-8).toUpperCase()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-gray-900">{formatPrice(order.total)}</p>
+                      <p className="text-xs text-gray-400">{formatDate(order.createdAt)}</p>
+                    </div>
+                    <span className={`hidden sm:inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.color}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </motion.div>
     </div>
   )
 }
-
-
