@@ -1,0 +1,63 @@
+name: HepsiJET Günlük Sipariş Otomasyonu
+
+on:
+  schedule:
+    # Her gün 17:30 Türkiye Saati (Europe/Istanbul, UTC+3) = 14:30 UTC
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Saat aralığı toleransı kısıtını atlayarak anında tetikle'
+        required: false
+        type: boolean
+        default: true
+
+# Aynı anda iki kez çalışmasını önleyen concurrency kilidi
+concurrency:
+  group: hepsijet-daily-automation
+  cancel-in-progress: false
+
+jobs:
+  run-automation:
+    name: Günlük Sipariş Kontrolü
+    runs-on: ubuntu-latest
+    steps:
+      - name: HepsiJET Otomasyon Endpoint'ini Çağır
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ENDPOINT_URL: 'https://sonrakam.com/api/cron/hepsijet-daily'
+          IS_FORCE: ${{ github.event.inputs.force_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET tanımlı değil. Lütfen GitHub Repo Settings -> Secrets and variables -> Actions altından CRON_SECRET ekleyin."
+            exit 1
+          fi
+
+          echo "🚀 HepsiJET günlük sipariş otomasyonu tetikleniyor..."
+
+          HEADER_FORCE=""
+          if [ "$IS_FORCE" = "true" ]; then
+            HEADER_FORCE="-H x-force-run:true"
+          fi
+
+          RESPONSE_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" -X POST "$ENDPOINT_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            $HEADER_FORCE)
+
+          echo "HTTP Yanıt Kodu: $HTTP_STATUS"
+          echo "Yanıt Özeti:"
+          cat "$RESPONSE_FILE"
+          echo ""
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::Otomasyon isteği başarısız oldu (HTTP $HTTP_STATUS)!"
+            rm -f "$RESPONSE_FILE"
+            exit 1
+          fi
+
+          rm -f "$RESPONSE_FILE"
+          echo "✅ HepsiJET günlük otomasyonu başarıyla yürütüldü."
