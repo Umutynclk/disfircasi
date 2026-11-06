@@ -7,7 +7,12 @@
       ".git",
       "firebase-debug.log",
       "firebase-debug.*.log",
-      "functions"
+      "functions",
+      "tests",
+      "print-agent",
+      "simulated_prints",
+      ".agents",
+      ".claude"
     ]
   }
 }
