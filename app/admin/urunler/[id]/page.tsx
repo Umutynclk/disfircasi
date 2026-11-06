@@ -27,6 +27,10 @@ export default function EditProductPage() {
     price: '',
     discountPrice: '',
     discountPercentage: '',
+    priceUSD: '',
+    discountPriceUSD: '',
+    priceEUR: '',
+    discountPriceEUR: '',
     description: '',
     category: 'otomatik',
     inStock: true,
@@ -41,8 +45,6 @@ export default function EditProductPage() {
   const [newImages, setNewImages] = useState<File[]>([])
   const [existingVideo, setExistingVideo] = useState<string>('')
   const [newVideo, setNewVideo] = useState<File | null>(null)
-  const [existingModel3d, setExistingModel3d] = useState<string>('')
-  const [newModel3d, setNewModel3d] = useState<File | null>(null)
   
   interface ColorOption {
     name: string
@@ -75,6 +77,10 @@ export default function EditProductPage() {
             price: data.price?.toString() || '',
             discountPrice: data.discountPrice?.toString() || '',
             discountPercentage: data.discountPercentage?.toString() || '',
+            priceUSD: data.priceUSD?.toString() || '',
+            discountPriceUSD: data.discountPriceUSD?.toString() || '',
+            priceEUR: data.priceEUR?.toString() || '',
+            discountPriceEUR: data.discountPriceEUR?.toString() || '',
             description: data.description || '',
             category: data.category || 'otomatik',
             inStock: data.inStock !== undefined ? data.inStock : true,
@@ -84,7 +90,6 @@ export default function EditProductPage() {
           })
           setExistingImages(data.images || (data.image ? [data.image] : []))
           setExistingVideo(data.video || '')
-          setExistingModel3d(data.model3dUrl || '')
           setColors(data.colors?.map((c: any) => ({ 
             ...c, 
             images: [], 
@@ -259,11 +264,6 @@ export default function EditProductPage() {
           return colorData
         })
       )
-      // 3D Modeli yükle
-      let uploadedModelUrl = existingModel3d
-      if (newModel3d) {
-        uploadedModelUrl = await uploadModel(newModel3d, 'products/models')
-      }
 
       // Firestore'u güncelle
       const regularPrice = parseFloat(formData.price)
@@ -301,12 +301,30 @@ export default function EditProductPage() {
         productData.discountPercentage = null
       }
 
-      if (uploadedVideoUrl) {
-        productData.video = uploadedVideoUrl
+      // Opsiyonel Dolar ve Euro Özel Fiyatları
+      if (formData.priceUSD && !isNaN(parseFloat(formData.priceUSD))) {
+        productData.priceUSD = parseFloat(formData.priceUSD)
+      } else {
+        productData.priceUSD = null
+      }
+      if (formData.discountPriceUSD && !isNaN(parseFloat(formData.discountPriceUSD))) {
+        productData.discountPriceUSD = parseFloat(formData.discountPriceUSD)
+      } else {
+        productData.discountPriceUSD = null
+      }
+      if (formData.priceEUR && !isNaN(parseFloat(formData.priceEUR))) {
+        productData.priceEUR = parseFloat(formData.priceEUR)
+      } else {
+        productData.priceEUR = null
+      }
+      if (formData.discountPriceEUR && !isNaN(parseFloat(formData.discountPriceEUR))) {
+        productData.discountPriceEUR = parseFloat(formData.discountPriceEUR)
+      } else {
+        productData.discountPriceEUR = null
       }
 
-      if (uploadedModelUrl) {
-        productData.model3dUrl = uploadedModelUrl
+      if (uploadedVideoUrl) {
+        productData.video = uploadedVideoUrl
       }
 
       if (uploadedColors.length > 0) {
@@ -425,7 +443,7 @@ export default function EditProductPage() {
 
               {/* İndirim Alanları */}
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-4">
-                <h3 className="text-lg font-semibold text-orange-900">İndirim Ayarları</h3>
+                <h3 className="text-lg font-semibold text-orange-900">İndirim Ayarları (TL)</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -481,6 +499,80 @@ export default function EditProductPage() {
                         {formData.discountPercentage}% indirimle: {parseFloat(formData.discountPrice).toLocaleString('tr-TR')} ₺
                       </p>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Dolar ($) ve Euro (€) Özel Fiyat Alanları (Opsiyonel) */}
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-sky-950">🌍 Uluslararası Özel Fiyatlandırma (Opsiyonel)</h3>
+                  <span className="text-xs text-sky-700 font-medium">Boş bırakılırsa genel kur oranından otomatik çevrilir</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  {/* USD ($) */}
+                  <div className="bg-white p-4 rounded-xl border border-sky-100 space-y-3">
+                    <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
+                      <span>🇺🇸 / 🇬🇧</span>
+                      <span>İngilizce Dili için Dolar ($) Fiyatı</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Normal ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.priceUSD}
+                          onChange={(e) => setFormData({ ...formData, priceUSD: e.target.value })}
+                          placeholder="Örn: 39.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">İndirimli ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.discountPriceUSD}
+                          onChange={(e) => setFormData({ ...formData, discountPriceUSD: e.target.value })}
+                          placeholder="Örn: 29.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* EUR (€) */}
+                  <div className="bg-white p-4 rounded-xl border border-sky-100 space-y-3">
+                    <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
+                      <span>🇩🇪 / 🇫🇷</span>
+                      <span>Almanca & Fransızca için Euro (€) Fiyatı</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Normal (€)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.priceEUR}
+                          onChange={(e) => setFormData({ ...formData, priceEUR: e.target.value })}
+                          placeholder="Örn: 34.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">İndirimli (€)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.discountPriceEUR}
+                          onChange={(e) => setFormData({ ...formData, discountPriceEUR: e.target.value })}
+                          placeholder="Örn: 24.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

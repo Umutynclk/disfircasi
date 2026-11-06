@@ -26,6 +26,10 @@ export default function NewProductPage() {
     price: '',
     discountPrice: '',
     discountPercentage: '',
+    priceUSD: '',
+    discountPriceUSD: '',
+    priceEUR: '',
+    discountPriceEUR: '',
     description: '',
     category: 'otomatik',
     inStock: true,
@@ -40,9 +44,6 @@ export default function NewProductPage() {
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const [video, setVideo] = useState<File | null>(null)
   const [videoUrl, setVideoUrl] = useState<string>('')
-  
-  const [model3d, setModel3d] = useState<File | null>(null)
-  const [model3dUrl, setModel3dUrl] = useState<string>('')
   
   interface ColorOption {
     name: string
@@ -89,11 +90,6 @@ export default function NewProductPage() {
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null
     setVideo(file)
-  }
-
-  const handleModelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null
-    setModel3d(file)
   }
 
   const addFeature = () => {
@@ -207,12 +203,6 @@ export default function NewProductPage() {
         uploadedVideoUrl = await uploadVideo(video, 'products')
       }
       
-      // 3D Modeli yükle
-      let uploadedModelUrl = model3dUrl || ''
-      if (model3d) {
-        uploadedModelUrl = await uploadModel(model3d, 'products/models')
-      }
-
       // Renk seçeneklerini yükle
       const uploadedColors = await Promise.all(
         colors.map(async (color) => {
@@ -267,12 +257,22 @@ export default function NewProductPage() {
         }
       }
 
+      // Opsiyonel Dolar ve Euro Özel Fiyatları
+      if (formData.priceUSD && !isNaN(parseFloat(formData.priceUSD))) {
+        productData.priceUSD = parseFloat(formData.priceUSD)
+      }
+      if (formData.discountPriceUSD && !isNaN(parseFloat(formData.discountPriceUSD))) {
+        productData.discountPriceUSD = parseFloat(formData.discountPriceUSD)
+      }
+      if (formData.priceEUR && !isNaN(parseFloat(formData.priceEUR))) {
+        productData.priceEUR = parseFloat(formData.priceEUR)
+      }
+      if (formData.discountPriceEUR && !isNaN(parseFloat(formData.discountPriceEUR))) {
+        productData.discountPriceEUR = parseFloat(formData.discountPriceEUR)
+      }
+
       if (uploadedVideoUrl) {
         productData.video = uploadedVideoUrl
-      }
-      
-      if (uploadedModelUrl) {
-        productData.model3dUrl = uploadedModelUrl
       }
 
       if (uploadedColors.length > 0) {
@@ -390,7 +390,7 @@ export default function NewProductPage() {
 
               {/* İndirim Alanları */}
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-4">
-                <h3 className="text-lg font-semibold text-orange-900">İndirim Ayarları</h3>
+                <h3 className="text-lg font-semibold text-orange-900">İndirim Ayarları (TL)</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -446,6 +446,80 @@ export default function NewProductPage() {
                         {formData.discountPercentage}% indirimle: {parseFloat(formData.discountPrice).toLocaleString('tr-TR')} ₺
                       </p>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Dolar ($) ve Euro (€) Özel Fiyat Alanları (Opsiyonel) */}
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-sky-950">🌍 Uluslararası Özel Fiyatlandırma (Opsiyonel)</h3>
+                  <span className="text-xs text-sky-700 font-medium">Boş bırakılırsa genel kur oranından otomatik çevrilir</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  {/* USD ($) */}
+                  <div className="bg-white p-4 rounded-xl border border-sky-100 space-y-3">
+                    <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
+                      <span>🇺🇸 / 🇬🇧</span>
+                      <span>İngilizce Dili için Dolar ($) Fiyatı</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Normal ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.priceUSD}
+                          onChange={(e) => setFormData({ ...formData, priceUSD: e.target.value })}
+                          placeholder="Örn: 39.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">İndirimli ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.discountPriceUSD}
+                          onChange={(e) => setFormData({ ...formData, discountPriceUSD: e.target.value })}
+                          placeholder="Örn: 29.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* EUR (€) */}
+                  <div className="bg-white p-4 rounded-xl border border-sky-100 space-y-3">
+                    <div className="flex items-center gap-2 font-bold text-sm text-slate-800">
+                      <span>🇩🇪 / 🇫🇷</span>
+                      <span>Almanca & Fransızca için Euro (€) Fiyatı</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Normal (€)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.priceEUR}
+                          onChange={(e) => setFormData({ ...formData, priceEUR: e.target.value })}
+                          placeholder="Örn: 34.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">İndirimli (€)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.discountPriceEUR}
+                          onChange={(e) => setFormData({ ...formData, discountPriceEUR: e.target.value })}
+                          placeholder="Örn: 24.99"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-sky-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -558,46 +632,6 @@ export default function NewProductPage() {
                     />
                   </label>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  3D Model (.glb / .gltf) VEYA Harici URL (Opsiyonel)
-                </label>
-                <div className="flex gap-4">
-                  <input
-                    type="text"
-                    value={model3dUrl}
-                    onChange={(e) => setModel3dUrl(e.target.value)}
-                    placeholder="https://.../model.glb"
-                    className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary-600 focus:outline-none"
-                  />
-                  {model3d ? (
-                    <div className="flex items-center gap-2 px-4 border-2 border-primary-600 bg-primary-50 rounded-lg text-primary-700">
-                      <FiBox className="w-5 h-5" />
-                      <span className="text-sm font-medium truncate w-32">{model3d.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setModel3d(null)}
-                        className="p-1 text-red-500 hover:text-red-700"
-                      >
-                        <FiX className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-600 hover:text-primary-600 transition-colors">
-                      <FiUpload className="w-5 h-5" />
-                      <span className="text-sm font-medium">Dosya Seç</span>
-                      <input
-                        type="file"
-                        accept=".glb,.gltf"
-                        onChange={handleModelUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500 mt-2">Sadece .glb veya .gltf dosyası yükleyebilirsiniz veya harici bir 3D model URL'si girebilirsiniz.</p>
               </div>
             </div>
 

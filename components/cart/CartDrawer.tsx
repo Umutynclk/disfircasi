@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiX, FiTrash2, FiPlus, FiMinus, FiShoppingBag, FiArrowRight, FiShield, FiCheck } from 'react-icons/fi'
+import { FiX, FiTrash2, FiPlus, FiMinus, FiShoppingBag, FiArrowRight, FiShield } from 'react-icons/fi'
 import Link from 'next/link'
 import { getCart, removeFromCart, updateCartItemQuantity, getCartTotal, CartItem } from '@/lib/utils/cart'
+import { useLocale } from '@/context/LocaleContext'
 
 export default function CartDrawer() {
+  const { t, getLocalizedPath, formatPriceWithCurrency } = useLocale()
   const [isOpen, setIsOpen] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
 
@@ -67,12 +69,12 @@ export default function CartDrawer() {
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-brand-blue/10 flex items-center justify-center text-brand-blue">
+                <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center text-sky-600">
                   <FiShoppingBag className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">Alışveriş Sepetim</h3>
-                  <p className="text-xs text-gray-500">{cart.reduce((a, b) => a + b.quantity, 0)} Adet Ürün</p>
+                  <h3 className="text-lg font-bold text-gray-900">{t.cart.title}</h3>
+                  <p className="text-xs text-gray-500">{cart.reduce((a, b) => a + b.quantity, 0)} {t.nav.cart}</p>
                 </div>
               </div>
               <button
@@ -90,15 +92,15 @@ export default function CartDrawer() {
                   <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
                     <FiShoppingBag className="w-10 h-10 text-gray-300" />
                   </div>
-                  <h4 className="text-lg font-semibold text-gray-700 mb-1">Sepetiniz Boş</h4>
+                  <h4 className="text-lg font-semibold text-gray-700 mb-1">{t.cart.emptyTitle}</h4>
                   <p className="text-sm text-gray-500 max-w-xs mb-6">
-                    Ağız sağlığınız için en yeni ürünleri keşfedin ve sepetinize ekleyin.
+                    {t.cart.emptyDesc}
                   </p>
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="px-6 py-3 bg-brand-blue text-white font-medium rounded-full hover:bg-blue-600 transition-all text-sm shadow-md shadow-brand-blue/20"
+                    className="px-6 py-3 bg-sky-600 text-white font-medium rounded-full hover:bg-sky-700 transition-all text-sm shadow-md shadow-sky-600/20"
                   >
-                    Ürünleri Keşfet
+                    {t.cart.continueShopping}
                   </button>
                 </div>
               ) : (
@@ -119,7 +121,7 @@ export default function CartDrawer() {
                           <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
                         ) : (
                           <div className="w-full h-full bg-slate-100 flex items-center justify-center text-xs text-gray-400">
-                            Resim Yok
+                            -
                           </div>
                         )}
                       </div>
@@ -138,7 +140,7 @@ export default function CartDrawer() {
                           </div>
                           {item.selectedColor && (
                             <p className="text-xs text-gray-500 mt-0.5">
-                              Renk: {item.selectedColor.name}
+                              {item.selectedColor.name}
                             </p>
                           )}
                         </div>
@@ -163,7 +165,7 @@ export default function CartDrawer() {
 
                           <div className="text-right">
                             <span className="font-bold text-gray-900 text-sm">
-                              {(price * item.quantity).toLocaleString('tr-TR')} ₺
+                              {formatPriceWithCurrency(price * item.quantity)}
                             </span>
                           </div>
                         </div>
@@ -179,39 +181,39 @@ export default function CartDrawer() {
               <div className="p-6 border-t border-slate-100 bg-white space-y-4">
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between text-gray-500">
-                    <span>Ara Toplam</span>
-                    <span className="font-medium text-gray-900">{subtotal.toLocaleString('tr-TR')} ₺</span>
+                    <span>{t.cart.subtotal}</span>
+                    <span className="font-medium text-gray-900">{formatPriceWithCurrency(subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-gray-500">
-                    <span>Kargo</span>
-                    <span className="text-brand-green font-medium">Ücretsiz Kargo</span>
+                    <span>{t.cart.shipping}</span>
+                    <span className="text-emerald-600 font-medium">{t.cart.freeShipping}</span>
                   </div>
                   <div className="flex justify-between text-base font-bold text-gray-900 pt-2 border-t border-gray-100">
-                    <span>Toplam Tutarlık</span>
-                    <span className="text-brand-blue text-lg">{subtotal.toLocaleString('tr-TR')} ₺</span>
+                    <span>{t.cart.subtotal}</span>
+                    <span className="text-sky-600 text-lg">{formatPriceWithCurrency(subtotal)}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50/50 p-2.5 rounded-xl border border-blue-100">
-                  <FiShield className="w-4 h-4 text-brand-blue flex-shrink-0" />
-                  <span>256-Bit SSL ile %100 Güvenli ve Şifreli Ödeme</span>
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-sky-50/50 p-2.5 rounded-xl border border-sky-100">
+                  <FiShield className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                  <span>256-Bit SSL %100 Security</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <Link
-                    href="/sepet"
+                    href={getLocalizedPath('/sepet')}
                     onClick={() => setIsOpen(false)}
                     className="w-full text-center py-3 bg-slate-100 text-gray-800 font-semibold rounded-full hover:bg-slate-200 transition-colors text-sm"
                   >
-                    Sepete Git
+                    {t.nav.cart}
                   </Link>
 
                   <Link
-                    href="/satin-al?sepet=true"
+                    href={`${getLocalizedPath('/satin-al')}?sepet=true`}
                     onClick={() => setIsOpen(false)}
-                    className="w-full text-center py-3 bg-gradient-to-r from-brand-blue to-blue-600 text-white font-semibold rounded-full hover:shadow-lg hover:shadow-brand-blue/30 transition-all text-sm flex items-center justify-center gap-1.5"
+                    className="w-full text-center py-3 bg-gradient-to-r from-sky-600 to-blue-600 text-white font-semibold rounded-full hover:shadow-lg hover:shadow-sky-600/30 transition-all text-sm flex items-center justify-center gap-1.5"
                   >
-                    Ödemeye Geç <FiArrowRight className="w-4 h-4" />
+                    {t.cart.checkoutBtn} <FiArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               </div>

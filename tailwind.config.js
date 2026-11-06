@@ -7,6 +7,14 @@ module.exports = {
   ],
   theme: {
     extend: {
+      screens: {
+        'xs': '375px',
+        'sm': '640px',
+        'md': '768px',
+        'lg': '1024px',
+        'xl': '1280px',
+        '2xl': '1536px',
+      },
       colors: {
         brand: {
           blue: '#0878FF',
@@ -61,10 +69,15 @@ module.exports = {
       boxShadow: {
         xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
       },
+      spacing: {
+        'safe': 'env(safe-area-inset-bottom, 0px)',
+        'safe-top': 'env(safe-area-inset-top, 0px)',
+      },
     },
   },
   plugins: [],
 }
+
 
 
 

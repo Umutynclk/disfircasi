@@ -40,19 +40,27 @@ export const saveCart = (cart: CartItem[]): void => {
   }
 }
 
-export const addToCart = (item: Omit<CartItem, 'id' | 'quantity'>): CartItem => {
+/**
+ * Ürünü sepete ekler.
+ * @param suppressDrawer true ise sepet paneli otomatik açılmaz ("Satın Al" direkt checkout akışı için).
+ */
+export const addToCart = (
+  item: Omit<CartItem, 'id' | 'quantity'> & { quantity?: number },
+  suppressDrawer = false
+): CartItem => {
   const cart = getCart()
+  const addQty = item.quantity && item.quantity > 0 ? item.quantity : 1
   const existingItemIndex = cart.findIndex(
-    (cartItem) => 
-      cartItem.productId === item.productId && 
+    (cartItem) =>
+      cartItem.productId === item.productId &&
       cartItem.selectedColor?.code === item.selectedColor?.code
   )
 
   if (existingItemIndex >= 0) {
     // Ürün zaten sepette, miktarı artır
-    cart[existingItemIndex].quantity += 1
+    cart[existingItemIndex].quantity += addQty
     saveCart(cart)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !suppressDrawer) {
       window.dispatchEvent(new CustomEvent('openCartDrawer'))
     }
     return cart[existingItemIndex]
@@ -61,11 +69,11 @@ export const addToCart = (item: Omit<CartItem, 'id' | 'quantity'>): CartItem => 
     const newItem: CartItem = {
       ...item,
       id: `${item.productId}_${Date.now()}_${Math.random()}`,
-      quantity: 1
+      quantity: addQty,
     }
     cart.push(newItem)
     saveCart(cart)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !suppressDrawer) {
       window.dispatchEvent(new CustomEvent('openCartDrawer'))
     }
     return newItem

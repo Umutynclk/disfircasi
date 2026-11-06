@@ -6,7 +6,14 @@ import {
   FiPlus, FiEdit2, FiTrash2, FiSave, FiX, FiTag,
   FiArrowUp, FiArrowDown, FiEye, FiEyeOff, FiImage,
 } from 'react-icons/fi'
-import { subscribeToCategories, createCategory, updateCategory, deleteCategory, Category } from '@/lib/firebase/categories'
+import {
+  subscribeToCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  seedDefaultCategories,
+  Category,
+} from '@/lib/firebase/categories'
 import { uploadImage } from '@/lib/firebase/storage'
 
 const EMPTY_FORM: Omit<Category, 'id'> = {
@@ -27,6 +34,8 @@ export default function CategoriesPage() {
   const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [seeding, setSeeding] = useState(false)
 
   useEffect(() => {
     const unsub = subscribeToCategories((cats) => {
@@ -35,6 +44,20 @@ export default function CategoriesPage() {
     })
     return () => unsub()
   }, [])
+
+  const handleSeed = async () => {
+    if (!confirm('Varsayılan kategoriler (Otomatik, Kullan-At, Yedek Başlık) veritabanına eklensin mi?')) return
+    setSeeding(true)
+    try {
+      await seedDefaultCategories()
+      alert('Varsayılan kategoriler başarıyla oluşturuldu!')
+    } catch (err: any) {
+      console.error('Seed error:', err)
+      alert('Kategoriler eklenirken hata oluştu: ' + (err?.message || 'Firebase izin hatası'))
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   const openCreate = () => {
     setEditingId(null)
@@ -101,29 +124,33 @@ export default function CategoriesPage() {
         await createCategory(form)
       }
       closeModal()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err)
-      alert('Kategori kaydedilemedi!')
+      alert('Kategori kaydedilemedi: ' + (err?.message || 'Firebase izinlerini kontrol edin'))
     } finally {
       setSaving(false)
     }
   }
 
   const handleDelete = async (id: string) => {
+    setDeletingId(id)
     try {
       await deleteCategory(id)
       setDeleteConfirm(null)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Delete error:', err)
-      alert('Kategori silinemedi!')
+      alert('Kategori silinemedi: ' + (err?.message || 'Firebase Firestore izin hatası. Lütfen Firestore kurallarında categories koleksiyonu iznini kontrol edin.'))
+    } finally {
+      setDeletingId(null)
     }
   }
 
   const toggleActive = async (cat: Category) => {
     try {
       await updateCategory(cat.id, { active: !cat.active })
-    } catch (err) {
+    } catch (err: any) {
       console.error('Toggle error:', err)
+      alert('Güncelleme hatası: ' + (err?.message || 'Firebase izin hatası'))
     }
   }
 
@@ -148,20 +175,31 @@ export default function CategoriesPage() {
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Kategori Yönetimi</h1>
-          <p className="text-gray-500 mt-1">Ürün kategorilerini düzenleyin ve sıralayın</p>
+          <p className="text-gray-500 mt-1">Ürün kategorilerini düzenleyin, silin ve sıralayın</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={openCreate}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold shadow-md hover:bg-primary-700 transition-colors"
-        >
-          <FiPlus className="w-5 h-5" />
-          Yeni Kategori
-        </motion.button>
+        <div className="flex items-center gap-2">
+          {categories.length === 0 && !loading && (
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
+            >
+              {seeding ? 'Ekleniyor...' : 'Varsayılanları Yükle'}
+            </button>
+          )}
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={openCreate}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold shadow-md hover:bg-primary-700 transition-colors"
+          >
+            <FiPlus className="w-5 h-5" />
+            Yeni Kategori
+          </motion.button>
+        </div>
       </div>
 
       {/* Categories List */}
@@ -170,10 +208,25 @@ export default function CategoriesPage() {
           <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
         </div>
       ) : categories.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200">
+        <div className="text-center py-20 bg-white rounded-2xl border border-gray-200 p-8">
           <FiTag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">Henüz kategori yok</p>
-          <p className="text-gray-400 text-sm mt-1">İlk kategorinizi oluşturun</p>
+          <p className="text-gray-700 font-semibold text-lg">Henüz kategori bulunmuyor</p>
+          <p className="text-gray-500 text-sm mt-1 mb-6">Yeni bir kategori ekleyebilir veya varsayılan kategorileri yükleyebilirsiniz.</p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="px-5 py-2.5 bg-primary-50 text-primary-700 border border-primary-200 rounded-xl font-semibold text-sm hover:bg-primary-100 transition-colors"
+            >
+              {seeding ? 'Yükleniyor...' : 'Varsayılan Kategorileri Yükle'}
+            </button>
+            <button
+              onClick={openCreate}
+              className="px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold text-sm hover:bg-primary-700 transition-colors"
+            >
+              Yeni Kategori Ekle
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -256,13 +309,19 @@ export default function CategoriesPage() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleDelete(cat.id)}
-                      className="px-2 py-1 bg-red-600 text-white text-xs rounded-lg font-medium"
+                      disabled={deletingId === cat.id}
+                      className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
                     >
-                      Sil
+                      {deletingId === cat.id ? (
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        'Sil'
+                      )}
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(null)}
-                      className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-lg"
+                      disabled={deletingId === cat.id}
+                      className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs rounded-lg transition-colors"
                     >
                       İptal
                     </button>
@@ -271,6 +330,7 @@ export default function CategoriesPage() {
                   <button
                     onClick={() => setDeleteConfirm(cat.id)}
                     className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Kategoriyi Sil"
                   >
                     <FiTrash2 className="w-4 h-4" />
                   </button>

@@ -76,27 +76,49 @@ Firebase Firestore ve Storage için security rules'ları kontrol edin:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Admin koleksiyonu - sadece authenticated admin
-    match /admin/{document=**} {
-      allow read, write: if request.auth != null;
+    // Categories - herkes okuyabilir, admin yönetebilir (silme dahil)
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null;
     }
-    
-    // Products - herkes okuyabilir, sadece admin yazabilir
+
+    // Products - herkes okuyabilir, admin yönetebilir
     match /products/{productId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write, delete: if request.auth != null;
     }
     
-    // Site content - herkes okuyabilir, sadece admin yazabilir
+    // Site content - herkes okuyabilir, admin yönetebilir
     match /siteContent/{contentId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write, delete: if request.auth != null;
     }
     
-    // Contacts - herkes yazabilir, sadece admin okuyabilir
+    // Orders - herkes sipariş oluşturabilir, admin okuyup yönetebilir
+    match /orders/{orderId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // Contacts - herkes yazabilir, admin okuyabilir
     match /contacts/{contactId} {
       allow create: if true;
-      allow read: if request.auth != null;
+      allow read, write, delete: if request.auth != null;
+    }
+
+    // Settings & Coupons
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null;
+    }
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null;
+    }
+
+    // Admin koleksiyonu
+    match /admin/{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }

@@ -1,0 +1,9 @@
+{
+  "apiUrl": "https://sonrakam.com",
+  "agentId": "kaliport-win-01",
+  "agentToken": "pa_live_your_secret_token_here",
+  "printerName": "4BARCODE 4B-2054TG",
+  "pollIntervalMs": 5000,
+  "dryRun": false,
+  "outputDir": "./simulated_prints"
+}

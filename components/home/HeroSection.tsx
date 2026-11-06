@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiArrowRight, FiCheckCircle, FiShield, FiZap, FiShoppingBag, FiStar, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
+import { FiArrowRight, FiCheckCircle, FiShield, FiZap, FiShoppingBag, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
 import Link from 'next/link'
 import Image from 'next/image'
 import { doc, onSnapshot } from 'firebase/firestore'
@@ -110,13 +110,16 @@ export default function HeroSection({ featuredProducts = [], loading }: HeroSect
     e.preventDefault()
     e.stopPropagation()
 
-    addToCart({
-      productId: product.id,
-      name: product.name,
-      price: product.price,
-      discountPrice: product.discountPrice,
-      image: currentImage,
-    })
+    addToCart(
+      {
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        discountPrice: product.discountPrice,
+        image: currentImage,
+      },
+      true // suppressDrawer → doğrudan checkout'a yönlendir
+    )
 
     router.push('/satin-al')
   }
@@ -236,11 +239,6 @@ export default function HeroSection({ featuredProducts = [], loading }: HeroSect
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  <div className="flex items-center gap-1 text-amber-500 text-xs font-bold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60">
-                    <FiStar className="fill-amber-400 w-3.5 h-3.5" />
-                    <span>4.9 / 5.0</span>
                   </div>
                 </div>
 

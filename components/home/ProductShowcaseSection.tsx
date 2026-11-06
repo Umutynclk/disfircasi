@@ -5,7 +5,7 @@ import { collection, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { FiShoppingBag, FiStar, FiArrowRight, FiCheck } from 'react-icons/fi'
+import { FiShoppingBag, FiArrowRight, FiCheck } from 'react-icons/fi'
 import TiltCard from '@/components/animation/TiltCard'
 import { addToCart } from '@/lib/utils/cart'
 

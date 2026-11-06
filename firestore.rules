@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email in ['info@gulumse.com', 'admin@gulumse.com', 'destek@gulumse.com', 'admin@gmail.com'] ||
+        (exists(/databases/$(database)/documents/settings/admins) &&
+         request.auth.token.email in get(/databases/$(database)/documents/settings/admins).data.allowedEmails)
+      );
+    }
+
+    // Categories - Everyone can read, authenticated admin can write and delete
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Products - Everyone can read, authenticated admin can write and delete
+    match /products/{productId} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Site Content (homepage showcases, promos, banners, etc.) - Everyone can read, admin can write
+    match /siteContent/{contentId} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Orders - TC kimlik / vergi / adres gibi hassas veriler içerir.
+    // - Oluşturma (istemci): yalnızca ödeme bekleyen havale/EFT siparişi; PAID/shipping alanları enjekte edilemez.
+    //   (Kart ödemeli siparişler sunucuda Admin SDK ile oluşturulur; Admin SDK kuralları atlar.)
+    // - Okuma: sipariş sahibi (userId / e-posta) veya admin. Misafir siparişi (userId=='guest') yalnızca
+    //   tek belge (get) olarak, sipariş numarasını bilen taraf okuyabilir (ödeme onay sayfası için); liste YASAK.
+    // - Güncelleme/silme: yalnızca admin.
+    match /orders/{orderId} {
+      allow create: if request.resource.data.status == 'pending'
+        && request.resource.data.paymentStatus == 'awaiting_bank_transfer'
+        && !('shipping' in request.resource.data)
+        && (request.resource.data.userId == 'guest' ||
+            (isAuthenticated() && request.resource.data.userId == request.auth.uid));
+      allow get: if isAdmin()
+        || (isAuthenticated() && resource.data.userId == request.auth.uid)
+        || resource.data.userId == 'guest';
+      allow list: if isAdmin()
+        || (isAuthenticated() && (
+              resource.data.userId == request.auth.uid ||
+              resource.data.customer.email == request.auth.token.email));
+      allow update, delete: if isAdmin();
+    }
+
+    // Users / Customer profiles & address subcollections
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && (isAdmin() ||
+        (request.auth.uid == userId && (!('role' in request.resource.data) || request.resource.data.role == 'user') && !('isAdmin' in request.resource.data)));
+      allow update: if isAuthenticated() && (isAdmin() ||
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin'])));
+      allow delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      match /{allPaths=**} {
+        allow read, write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // Contacts / Support messages - Anyone can create, admin can read/manage
+    match /contacts/{contactId} {
+      allow create: if true;
+      allow read, write, delete: if isAdmin();
+    }
+
+    // Coupons / Discounts - Everyone can read, admin can write
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Settings: yalnızca herkese açık site ayarları okunabilir. admins/hepsijet/orders vb. yalnızca admin.
+    match /settings/{settingId} {
+      allow read: if settingId in ['currency', 'legal', 'brand', 'site'] || isAdmin();
+      allow write, delete: if isAdmin();
+    }
+
+    // Analytics / Logs: istemci yalnızca oluşturabilir, okuma yalnızca admin
+    match /analytics/{docId} {
+      allow create: if true;
+      allow read, write, delete: if isAdmin();
+    }
+
+    // Default fallback for admin namespace
+    match /admin/{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

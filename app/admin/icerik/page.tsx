@@ -8,13 +8,31 @@ import {
   FiSave, FiImage, FiPlus, FiTrash2, FiCheck, FiCopy,
   FiArrowUp, FiArrowDown, FiEye, FiEyeOff, FiEdit3,
   FiLayout, FiLayers, FiGrid, FiCompass, FiShield,
-  FiHelpCircle, FiTruck, FiRotateCcw, FiPhone, FiInfo, FiStar, FiUpload
+  FiHelpCircle, FiTruck, FiRotateCcw, FiPhone, FiInfo, FiStar, FiUpload, FiShoppingBag, FiGlobe, FiZap
 } from 'react-icons/fi'
 import { uploadImage } from '@/lib/firebase/storage'
-import { DynamicSectionItem, DynamicSectionConfig, saveSectionData } from '@/lib/firebase/content'
+import {
+  DynamicSectionItem,
+  DynamicSectionConfig,
+  saveSectionData,
+  HomepageShowcaseConfig,
+  DEFAULT_HOMEPAGE_SHOWCASE,
+  saveHomepageShowcase,
+  ShowcaseItem,
+  subscribeToBrandLogos,
+  saveBrandLogos,
+  BrandLogoConfig,
+  subscribeToSection,
+} from '@/lib/firebase/content'
+import { translateContent } from '@/lib/services/translation'
 import MediaPickerModal from '@/components/admin/MediaPickerModal'
+import ShowcaseProductPickerModal from '@/components/admin/ShowcaseProductPickerModal'
+import { collection, getDocs } from 'firebase/firestore'
 
 type ContentTab =
+  | 'salesShowcase'
+  | 'featuresBar'
+  | 'brandLogos'
   | 'stories'
   | 'hero'
   | 'categories'
@@ -28,14 +46,41 @@ type ContentTab =
   | 'contact'
 
 export default function ContentStudioPage() {
-  const [activeTab, setActiveTab] = useState<ContentTab>('stories')
+  const [activeTab, setActiveTab] = useState<ContentTab>('salesShowcase')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
 
+  // Firebase Raw Products Cache for Resolving Product Info & Live Preview
+  const [allProductsList, setAllProductsList] = useState<any[]>([])
+
   // Media Picker state
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false)
   const [mediaPickerTarget, setMediaPickerTarget] = useState<((url: string) => void) | null>(null)
+
+  // Showcase Product Picker Modal state
+  const [showcasePickerOpen, setShowcasePickerOpen] = useState(false)
+  const [showcasePickerSide, setShowcasePickerSide] = useState<'left' | 'right'>('left')
+
+  // 0. DUAL SALES SHOWCASE CONFIG (HERO REPLACEMENT)
+  const [showcase, setShowcase] = useState<HomepageShowcaseConfig>(DEFAULT_HOMEPAGE_SHOWCASE)
+
+  // 0b. BRAND LOGOS (5 language)
+  const [brandLogos, setBrandLogos] = useState<BrandLogoConfig>({
+    tr: '', en: '', de: '', fr: '', it: '', default: '',
+  })
+
+  // 0c. FEATURES BAR (Dynamic N items)
+  const [featuresBarItems, setFeaturesBarItems] = useState<DynamicSectionItem[]>([
+    { id: 'f1', title: 'Daha Sağlıklı Dişler', description: 'Klinik onaylı diş eti koruması.', extra: { icon: 'tooth' }, order: 1, active: true },
+    { id: 'f2', title: 'Güvenli ve Doğal Temizlik', description: 'BPA içermeyen silikon kıllar.', extra: { icon: 'leaf' }, order: 2, active: true },
+    { id: 'f3', title: 'Aile Boyu Kullanım', description: 'Yetişkin ve çocuklar için boyutlar.', extra: { icon: 'heart' }, order: 3, active: true },
+    { id: 'f4', title: 'Seyahatler İçin İdeal', description: 'Hafif, taşınabilir ve hijyenik.', extra: { icon: 'airplane' }, order: 4, active: true },
+    { id: 'f5', title: 'Daha Beyaz Bir Gülüş', description: 'Lekeleri gidermeye yardımcı.', extra: { icon: 'smile' }, order: 5, active: true },
+  ])
+
+  // Auto-translation state
+  const [translating, setTranslating] = useState(false)
 
   // 1. UNLIMITED EDITORIAL STORIES
   const [stories, setStories] = useState<DynamicSectionItem[]>([
@@ -193,13 +238,29 @@ export default function ContentStudioPage() {
 
   // Load all sections from Firestore
   useEffect(() => {
+    // Subscribe to brand logos
+    const unsubLogos = subscribeToBrandLogos((logos) => {
+      setBrandLogos(logos)
+    })
+
+    // Subscribe to features bar
+    const unsubFeatures = subscribeToSection(
+      'homepageFeatures',
+      (secData) => {
+        if (secData.items && secData.items.length > 0) {
+          setFeaturesBarItems(secData.items.sort((a, b) => (a.order || 0) - (b.order || 0)))
+        }
+      }
+    )
+
     const loadAll = async () => {
       try {
         const db = getFirestoreDB()
         const [
-          heroDoc, storiesDoc, catDoc, whyDoc, prodShowDoc, ctaDoc,
-          aboutDoc, faqDoc, shipDoc, retDoc, contactDoc
+          showcaseDoc, heroDoc, storiesDoc, catDoc, whyDoc, prodShowDoc, ctaDoc,
+          aboutDoc, faqDoc, shipDoc, retDoc, contactDoc, productsSnap
         ] = await Promise.all([
+          getDoc(doc(db, 'siteContent', 'homepageShowcase')),
           getDoc(doc(db, 'siteContent', 'hero')),
           getDoc(doc(db, 'siteContent', 'editorialPromo')),
           getDoc(doc(db, 'siteContent', 'categoryChoice')),
@@ -211,7 +272,30 @@ export default function ContentStudioPage() {
           getDoc(doc(db, 'siteContent', 'shipping')),
           getDoc(doc(db, 'siteContent', 'return')),
           getDoc(doc(db, 'siteContent', 'contact')),
+          getDocs(collection(db, 'products')),
         ])
+
+        if (showcaseDoc.exists()) {
+          const raw = showcaseDoc.data() as any
+          setShowcase((prev) => ({
+            ...prev,
+            ...raw,
+            left: {
+              ...prev.left,
+              ...(raw.left || {}),
+              items: raw.left?.items || [],
+            },
+            right: {
+              ...prev.right,
+              ...(raw.right || {}),
+              items: raw.right?.items || [],
+            },
+          }))
+        }
+
+        if (productsSnap && !productsSnap.empty) {
+          setAllProductsList(productsSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
+        }
 
         if (heroDoc.exists()) setHero((prev) => ({ ...prev, ...heroDoc.data() }))
         
@@ -261,6 +345,11 @@ export default function ContentStudioPage() {
     }
 
     loadAll()
+
+    return () => {
+      unsubLogos()
+      unsubFeatures()
+    }
   }, [])
 
   // Universal Item Actions Helper (Add, Duplicate, Move, Toggle, Delete)
@@ -349,8 +438,10 @@ export default function ContentStudioPage() {
   }
 
   const TABS = [
+    { id: 'salesShowcase', label: 'Ana Sayfa Satış Vitrini (Yeni)', icon: FiShoppingBag },
+    { id: 'featuresBar', label: 'Alt Özellikler Barı', icon: FiZap },
+    { id: 'brandLogos', label: 'Marka Logoları (5 Dil)', icon: FiGlobe },
     { id: 'stories', label: 'Tanıtım Hikayeleri (Sınırsız)', icon: FiStar },
-    { id: 'hero', label: 'Hero / Karşılama', icon: FiLayout },
     { id: 'categories', label: 'Kategori Seçim Kartları', icon: FiLayers },
     { id: 'benefits', label: 'Marka Değerleri (Neden Gülümse)', icon: FiShield },
     { id: 'productShowcase', label: 'Öne Çıkan Ürünler Başlığı', icon: FiGrid },
@@ -361,6 +452,106 @@ export default function ContentStudioPage() {
     { id: 'return', label: 'İade & Değişim', icon: FiRotateCcw },
     { id: 'contact', label: 'İletişim Bilgileri', icon: FiPhone },
   ]
+
+  // Helpers for Showcase Items
+  const addProductToShowcase = (side: 'left' | 'right', product: any) => {
+    const sideConfig = showcase[side]
+    const existing = sideConfig.items || []
+    
+    // Duplicate check
+    if (existing.some((i) => i.productId === product.id)) {
+      alert('Bu ürün zaten vitrine ekli!')
+      return
+    }
+
+    const newItem: ShowcaseItem = {
+      id: `showcase_item_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      productId: product.id,
+      overrideTitle: '',
+      overrideSubtitle: '',
+      overrideDescription: '',
+      overrideImage: '',
+      overrideBadge: '',
+      overrideCtaText: '',
+      overrideCtaUrl: '',
+      features: product.features || [],
+      order: existing.length + 1,
+      active: true,
+    }
+
+    setShowcase({
+      ...showcase,
+      [side]: {
+        ...sideConfig,
+        items: [...existing, newItem],
+      },
+    })
+  }
+
+  const removeShowcaseItem = (side: 'left' | 'right', itemId: string) => {
+    const sideConfig = showcase[side]
+    const updated = (sideConfig.items || [])
+      .filter((i) => i.id !== itemId)
+      .map((item, idx) => ({ ...item, order: idx + 1 }))
+
+    setShowcase({
+      ...showcase,
+      [side]: {
+        ...sideConfig,
+        items: updated,
+      },
+    })
+  }
+
+  const moveShowcaseItem = (side: 'left' | 'right', index: number, direction: 'up' | 'down') => {
+    const sideConfig = showcase[side]
+    const list = [...(sideConfig.items || [])]
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= list.length) return
+
+    const temp = list[index]
+    list[index] = list[targetIndex]
+    list[targetIndex] = temp
+
+    const reordered = list.map((item, idx) => ({ ...item, order: idx + 1 }))
+
+    setShowcase({
+      ...showcase,
+      [side]: {
+        ...sideConfig,
+        items: reordered,
+      },
+    })
+  }
+
+  const toggleShowcaseItemActive = (side: 'left' | 'right', itemId: string) => {
+    const sideConfig = showcase[side]
+    const updated = (sideConfig.items || []).map((item) =>
+      item.id === itemId ? { ...item, active: !item.active } : item
+    )
+
+    setShowcase({
+      ...showcase,
+      [side]: {
+        ...sideConfig,
+        items: updated,
+      },
+    })
+  }
+
+  const handleSaveShowcase = async () => {
+    setSaving(true)
+    setSaveSuccess(null)
+    try {
+      await saveHomepageShowcase(showcase)
+      setSaveSuccess('salesShowcase')
+      setTimeout(() => setSaveSuccess(null), 3000)
+    } catch (err: any) {
+      alert(`Kaydedilirken hata oluştu: ${err.message || 'Hata'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -404,6 +595,857 @@ export default function ContentStudioPage() {
 
       {/* Main Content Area */}
       <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 sm:p-8">
+
+        {/* ========================================================================= */}
+        {/* 0. NEW DUAL SALES SHOWCASE TAB (HERO REPLACEMENT WITH DYNAMIC PRODUCTS) */}
+        {/* ========================================================================= */}
+        {activeTab === 'salesShowcase' && (
+          <div className="space-y-10">
+            {/* Tab Header & Save */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-bold text-gray-900">Ana Sayfa Satış Vitrini</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase bg-primary-50 text-primary-700 border border-primary-200">
+                    2 Kolonlu Vitrin
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Sol (Otomatik) ve Sağ (Kullan At) alanlarına istediğiniz sayıda ürün ekleyin. Ürünler bağımsız olarak 5 saniyede döner.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveShowcase}
+                disabled={saving}
+                className="flex items-center justify-center gap-2 px-8 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-bold transition-all shadow-md hover:shadow-lg disabled:opacity-50"
+              >
+                {saveSuccess === 'salesShowcase' ? <FiCheck className="w-4 h-4" /> : <FiSave className="w-4 h-4" />}
+                <span>{saving ? 'Kaydediliyor...' : saveSuccess === 'salesShowcase' ? 'Kaydedildi!' : 'Vitrini Kaydet'}</span>
+              </button>
+            </div>
+
+            {/* General Showcase Settings Banner */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Genel Vitrin Ayarları</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                {/* Active Toggle */}
+                <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">Vitrin Durumu</div>
+                    <div className="text-[11px] text-slate-500">Ana sayfada gösterilsin mi?</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showcase.active !== false}
+                    onChange={(e) => setShowcase({ ...showcase, active: e.target.checked })}
+                    className="w-5 h-5 accent-primary-600 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Autoplay Toggle */}
+                <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">Otomatik Döngü (Autoplay)</div>
+                    <div className="text-[11px] text-slate-500">Ürünler otomatik değişsin</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showcase.autoplay !== false}
+                    onChange={(e) => setShowcase({ ...showcase, autoplay: e.target.checked })}
+                    className="w-5 h-5 accent-primary-600 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Duration Picker */}
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-xs font-bold text-slate-800">Geçiş Süresi:</div>
+                    <span className="text-xs font-extrabold text-primary-600">{showcase.autoplaySeconds || 5} saniye</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[3, 4, 5, 6, 10].map((sec) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => setShowcase({ ...showcase, autoplaySeconds: sec })}
+                        className={`flex-1 py-1 text-xs font-bold rounded-lg transition-colors ${
+                          showcase.autoplaySeconds === sec
+                            ? 'bg-primary-600 text-white shadow-2xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {sec}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Two Side Columns Editors */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              
+              {/* ======================================================== */}
+              {/* LEFT COLUMN: OTOMATİK DİŞ FIRÇASI (Sky/Blue)              */}
+              {/* ======================================================== */}
+              <div className="bg-sky-50/40 rounded-3xl border border-sky-200/80 p-6 space-y-6">
+                <div className="flex items-center justify-between border-b border-sky-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-sky-500" />
+                    <h3 className="text-base font-black text-slate-900">SOL ALAN – OTOMATİK DİŞ FIRÇASI</h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-sky-700 bg-sky-100 px-2.5 py-0.5 rounded-full">
+                    {showcase.left.items?.length || 0} Ürün
+                  </span>
+                </div>
+
+                {/* Text configuration */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Üst Rozet</label>
+                      <input
+                        type="text"
+                        value={showcase.left.badge || ''}
+                        onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, badge: e.target.value } })}
+                        placeholder="örn: DÜNYANIN İLK"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Alt Kategori Başlığı</label>
+                      <input
+                        type="text"
+                        value={showcase.left.subtitle || ''}
+                        onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, subtitle: e.target.value } })}
+                        placeholder="örn: Otomatik Diş Fırçası"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Büyük Başlık Metni</label>
+                    <input
+                      type="text"
+                      value={showcase.left.title || ''}
+                      onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, title: e.target.value } })}
+                      placeholder="örn: 360° DÖNEBİLEN DİŞ FIRÇASI"
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:border-sky-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Açıklama</label>
+                    <textarea
+                      rows={2}
+                      value={showcase.left.description || ''}
+                      onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, description: e.target.value } })}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs resize-none focus:border-sky-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">CTA Buton Yazısı</label>
+                      <input
+                        type="text"
+                        value={showcase.left.ctaText || ''}
+                        onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, ctaText: e.target.value } })}
+                        placeholder="Satın Al"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">CTA Buton Linki</label>
+                      <input
+                        type="text"
+                        value={showcase.left.ctaUrl || ''}
+                        onChange={(e) => setShowcase({ ...showcase, left: { ...showcase.left, ctaUrl: e.target.value } })}
+                        placeholder="/urunler?kategori=otomatik"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Left Products List */}
+                <div className="pt-2 border-t border-sky-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Seçili Ürünler ({showcase.left.items?.length || 0})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowcasePickerSide('left')
+                        setShowcasePickerOpen(true)
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs"
+                    >
+                      <FiPlus className="w-3.5 h-3.5" />
+                      <span>+ Ürün Ekle</span>
+                    </button>
+                  </div>
+
+                  {/* Empty state or list */}
+                  {(!showcase.left.items || showcase.left.items.length === 0) ? (
+                    <div className="p-6 text-center bg-white/70 rounded-2xl border border-dashed border-sky-200 text-slate-400">
+                      <p className="text-xs font-medium mb-2">Henüz özel ürün seçilmedi.</p>
+                      <p className="text-[11px] text-slate-400">Otomatik olarak kategoriye ait ürünler dönecektir.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {showcase.left.items.map((item, idx) => {
+                        const matchedProduct = allProductsList.find((p) => p.id === item.productId)
+                        const displayImg = item.overrideImage || matchedProduct?.images?.[0] || matchedProduct?.image || ''
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={`bg-white rounded-2xl border p-4 transition-all space-y-3 ${
+                              item.active ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-gray-50'
+                            }`}
+                          >
+                            {/* Card Item Header */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="w-6 h-6 rounded-lg bg-sky-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 p-1 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                  {displayImg ? (
+                                    <img src={displayImg} alt="" className="w-full h-full object-contain" />
+                                  ) : (
+                                    <span>🦷</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">
+                                    {item.overrideTitle || matchedProduct?.name || 'Ürün'}
+                                  </h4>
+                                  <span className="text-[10px] text-slate-400">
+                                    {matchedProduct?.price ? `${matchedProduct.price.toLocaleString('tr-TR')} ₺` : 'Fiyat Tanımsız'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveShowcaseItem('left', idx, 'up')}
+                                  disabled={idx === 0}
+                                  className="p-1 text-slate-400 hover:text-slate-900 disabled:opacity-30"
+                                >
+                                  <FiArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveShowcaseItem('left', idx, 'down')}
+                                  disabled={idx === showcase.left.items.length - 1}
+                                  className="p-1 text-slate-400 hover:text-slate-900 disabled:opacity-30"
+                                >
+                                  <FiArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleShowcaseItemActive('left', item.id)}
+                                  className={`p-1 ${item.active ? 'text-emerald-600' : 'text-slate-400'}`}
+                                >
+                                  {item.active ? <FiEye className="w-3.5 h-3.5" /> : <FiEyeOff className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeShowcaseItem('left', item.id)}
+                                  className="p-1 text-red-500 hover:text-red-700 ml-1"
+                                >
+                                  <FiTrash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Item Overrides Collapsible Options */}
+                            <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                  Özel Başlık (Opsiyonel)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.overrideTitle || ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value
+                                    const updated = showcase.left.items.map((i) => (i.id === item.id ? { ...i, overrideTitle: val } : i))
+                                    setShowcase({ ...showcase, left: { ...showcase.left, items: updated } })
+                                  }}
+                                  placeholder={matchedProduct?.name || 'Ürün Adı'}
+                                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                  Özel Fotoğraf (Override)
+                                </label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openMediaPickerFor((url) => {
+                                        const updated = showcase.left.items.map((i) => (i.id === item.id ? { ...i, overrideImage: url } : i))
+                                        setShowcase({ ...showcase, left: { ...showcase.left, items: updated } })
+                                      })
+                                    }
+                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold transition-colors"
+                                  >
+                                    Medyadan Seç
+                                  </button>
+                                  {item.overrideImage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = showcase.left.items.map((i) => (i.id === item.id ? { ...i, overrideImage: '' } : i))
+                                        setShowcase({ ...showcase, left: { ...showcase.left, items: updated } })
+                                      }}
+                                      className="text-red-500 text-[10px] font-bold hover:underline"
+                                    >
+                                      Sıfırla
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ======================================================== */}
+              {/* RIGHT COLUMN: KULLAN AT DİŞ FIRÇASI (Emerald/Green)      */}
+              {/* ======================================================== */}
+              <div className="bg-emerald-50/40 rounded-3xl border border-emerald-200/80 p-6 space-y-6">
+                <div className="flex items-center justify-between border-b border-emerald-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                    <h3 className="text-base font-black text-slate-900">SAĞ ALAN – KULLAN AT DİŞ FIRÇASI</h3>
+                  </div>
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                    {showcase.right.items?.length || 0} Ürün
+                  </span>
+                </div>
+
+                {/* Text configuration */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Üst Rozet</label>
+                      <input
+                        type="text"
+                        value={showcase.right.badge || ''}
+                        onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, badge: e.target.value } })}
+                        placeholder="örn: DÜNYANIN İLK"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Alt Kategori Başlığı</label>
+                      <input
+                        type="text"
+                        value={showcase.right.subtitle || ''}
+                        onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, subtitle: e.target.value } })}
+                        placeholder="örn: Kullan At Diş Fırçası"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Büyük Başlık Metni</label>
+                    <input
+                      type="text"
+                      value={showcase.right.title || ''}
+                      onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, title: e.target.value } })}
+                      placeholder="örn: BAŞLIK DEĞİŞMELİ DİŞ FIRÇASI"
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:border-emerald-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Açıklama</label>
+                    <textarea
+                      rows={2}
+                      value={showcase.right.description || ''}
+                      onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, description: e.target.value } })}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs resize-none focus:border-emerald-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">CTA Buton Yazısı</label>
+                      <input
+                        type="text"
+                        value={showcase.right.ctaText || ''}
+                        onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, ctaText: e.target.value } })}
+                        placeholder="Satın Al"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">CTA Buton Linki</label>
+                      <input
+                        type="text"
+                        value={showcase.right.ctaUrl || ''}
+                        onChange={(e) => setShowcase({ ...showcase, right: { ...showcase.right, ctaUrl: e.target.value } })}
+                        placeholder="/urunler?kategori=kullan-at"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Products List */}
+                <div className="pt-2 border-t border-emerald-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Seçili Ürünler ({showcase.right.items?.length || 0})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowcasePickerSide('right')
+                        setShowcasePickerOpen(true)
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs"
+                    >
+                      <FiPlus className="w-3.5 h-3.5" />
+                      <span>+ Ürün Ekle</span>
+                    </button>
+                  </div>
+
+                  {/* Empty state or list */}
+                  {(!showcase.right.items || showcase.right.items.length === 0) ? (
+                    <div className="p-6 text-center bg-white/70 rounded-2xl border border-dashed border-emerald-200 text-slate-400">
+                      <p className="text-xs font-medium mb-2">Henüz özel ürün seçilmedi.</p>
+                      <p className="text-[11px] text-slate-400">Otomatik olarak seyahat / kullan-at ürünleri dönecektir.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {showcase.right.items.map((item, idx) => {
+                        const matchedProduct = allProductsList.find((p) => p.id === item.productId)
+                        const displayImg = item.overrideImage || matchedProduct?.images?.[0] || matchedProduct?.image || ''
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={`bg-white rounded-2xl border p-4 transition-all space-y-3 ${
+                              item.active ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-gray-50'
+                            }`}
+                          >
+                            {/* Card Item Header */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 p-1 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                  {displayImg ? (
+                                    <img src={displayImg} alt="" className="w-full h-full object-contain" />
+                                  ) : (
+                                    <span>🌿</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">
+                                    {item.overrideTitle || matchedProduct?.name || 'Ürün'}
+                                  </h4>
+                                  <span className="text-[10px] text-slate-400">
+                                    {matchedProduct?.price ? `${matchedProduct.price.toLocaleString('tr-TR')} ₺` : 'Fiyat Tanımsız'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveShowcaseItem('right', idx, 'up')}
+                                  disabled={idx === 0}
+                                  className="p-1 text-slate-400 hover:text-slate-900 disabled:opacity-30"
+                                >
+                                  <FiArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveShowcaseItem('right', idx, 'down')}
+                                  disabled={idx === showcase.right.items.length - 1}
+                                  className="p-1 text-slate-400 hover:text-slate-900 disabled:opacity-30"
+                                >
+                                  <FiArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleShowcaseItemActive('right', item.id)}
+                                  className={`p-1 ${item.active ? 'text-emerald-600' : 'text-slate-400'}`}
+                                >
+                                  {item.active ? <FiEye className="w-3.5 h-3.5" /> : <FiEyeOff className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeShowcaseItem('right', item.id)}
+                                  className="p-1 text-red-500 hover:text-red-700 ml-1"
+                                >
+                                  <FiTrash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Item Overrides Collapsible Options */}
+                            <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                  Özel Başlık (Opsiyonel)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.overrideTitle || ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value
+                                    const updated = showcase.right.items.map((i) => (i.id === item.id ? { ...i, overrideTitle: val } : i))
+                                    setShowcase({ ...showcase, right: { ...showcase.right, items: updated } })
+                                  }}
+                                  placeholder={matchedProduct?.name || 'Ürün Adı'}
+                                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                  Özel Fotoğraf (Override)
+                                </label>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openMediaPickerFor((url) => {
+                                        const updated = showcase.right.items.map((i) => (i.id === item.id ? { ...i, overrideImage: url } : i))
+                                        setShowcase({ ...showcase, right: { ...showcase.right, items: updated } })
+                                      })
+                                    }
+                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold transition-colors"
+                                  >
+                                    Medyadan Seç
+                                  </button>
+                                  {item.overrideImage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = showcase.right.items.map((i) => (i.id === item.id ? { ...i, overrideImage: '' } : i))
+                                        setShowcase({ ...showcase, right: { ...showcase.right, items: updated } })
+                                      }}
+                                      className="text-red-500 text-[10px] font-bold hover:underline"
+                                    >
+                                      Sıfırla
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* LIVE PREVIEW BOX */}
+            <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-extrabold uppercase tracking-widest text-slate-400">Canlı Önizleme (Admin Preview)</span>
+                </div>
+                <span className="text-xs text-slate-400">Ana sayfadaki görünüm</span>
+              </div>
+
+              <div className="bg-white text-slate-900 rounded-2xl p-6 border border-slate-200 shadow-inner grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-sky-50/70 p-5 rounded-2xl border border-sky-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-sky-600 uppercase">{showcase.left.badge || 'DÜNYANIN İLK'}</span>
+                    <h4 className="text-lg font-black text-slate-900">{showcase.left.subtitle || 'Otomatik Diş Fırçası'}</h4>
+                    <p className="text-xs font-bold text-sky-700 mt-1">{showcase.left.title || '360° DÖNEBİLEN DİŞ FIRÇASI'}</p>
+                    <p className="text-[11px] text-slate-500 mt-2 line-clamp-2">{showcase.left.description}</p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-sky-100 flex items-center justify-between">
+                    <span className="text-xs font-bold text-sky-600">🛒 {showcase.left.ctaText || 'Satın Al'}</span>
+                    <span className="text-[10px] text-slate-400 font-bold">{showcase.left.items?.length || 0} ürün tanımlı</span>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-50/70 p-5 rounded-2xl border border-emerald-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase">{showcase.right.badge || 'DÜNYANIN İLK'}</span>
+                    <h4 className="text-lg font-black text-slate-900">{showcase.right.subtitle || 'Kullan At Diş Fırçası'}</h4>
+                    <p className="text-xs font-bold text-emerald-700 mt-1">{showcase.right.title || 'BAŞLIK DEĞİŞMELİ DİŞ FIRÇASI'}</p>
+                    <p className="text-[11px] text-slate-500 mt-2 line-clamp-2">{showcase.right.description}</p>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-emerald-100 flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-600">🛒 {showcase.right.ctaText || 'Satın Al'}</span>
+                    <span className="text-[10px] text-slate-400 font-bold">{showcase.right.items?.length || 0} ürün tanımlı</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ========== FEATURES BAR TAB ========== */}
+        {activeTab === 'featuresBar' && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Alt Özellikler Barı</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Ana sayfa vitrininin altında görünen özellik ikonları. İstediğiniz kadar ekleyebilirsiniz.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => addItem(featuresBarItems, setFeaturesBarItems, {
+                    title: 'Yeni Özellik',
+                    description: 'Özellik açıklaması',
+                    extra: { icon: 'tooth' },
+                  })}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary-600 text-white rounded-xl font-bold text-xs hover:bg-primary-700 transition-colors"
+                >
+                  <FiPlus className="w-4 h-4" />
+                  Özellik Ekle
+                </button>
+                <button
+                  onClick={() => handleSaveSection('homepageFeatures', { items: featuresBarItems })}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {saving ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : saveSuccess === 'homepageFeatures' ? (
+                    <FiCheck className="w-4 h-4" />
+                  ) : (
+                    <FiSave className="w-4 h-4" />
+                  )}
+                  Kaydet
+                </button>
+              </div>
+            </div>
+
+            {featuresBarItems.map((feat, fIdx) => (
+              <div
+                key={feat.id}
+                className={`bg-white rounded-2xl border p-5 space-y-4 transition-all ${
+                  feat.active === false ? 'opacity-50 border-gray-200' : 'border-gray-200 hover:border-primary-300'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-black text-gray-800">#{fIdx + 1} — {feat.title || 'İsimsiz'}</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => moveItem(featuresBarItems, setFeaturesBarItems, fIdx, 'up')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><FiArrowUp className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => moveItem(featuresBarItems, setFeaturesBarItems, fIdx, 'down')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><FiArrowDown className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => toggleActive(featuresBarItems, setFeaturesBarItems, feat.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+                      {feat.active !== false ? <FiEye className="w-3.5 h-3.5" /> : <FiEyeOff className="w-3.5 h-3.5" />}
+                    </button>
+                    <button onClick={() => duplicateItem(featuresBarItems, setFeaturesBarItems, feat.id)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><FiCopy className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => deleteItem(featuresBarItems, setFeaturesBarItems, feat.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600"><FiTrash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Başlık</label>
+                    <input
+                      type="text"
+                      value={feat.title || ''}
+                      onChange={(e) => {
+                        const updated = [...featuresBarItems]
+                        updated[fIdx] = { ...updated[fIdx], title: e.target.value }
+                        setFeaturesBarItems(updated)
+                      }}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Açıklama</label>
+                    <input
+                      type="text"
+                      value={feat.description || ''}
+                      onChange={(e) => {
+                        const updated = [...featuresBarItems]
+                        updated[fIdx] = { ...updated[fIdx], description: e.target.value }
+                        setFeaturesBarItems(updated)
+                      }}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">İkon</label>
+                    <select
+                      value={feat.extra?.icon || 'tooth'}
+                      onChange={(e) => {
+                        const updated = [...featuresBarItems]
+                        updated[fIdx] = { ...updated[fIdx], extra: { ...updated[fIdx].extra, icon: e.target.value } }
+                        setFeaturesBarItems(updated)
+                      }}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="tooth">🦷 Diş</option>
+                      <option value="leaf">🌿 Yaprak</option>
+                      <option value="heart">❤️ Kalp</option>
+                      <option value="airplane">✈️ Uçak</option>
+                      <option value="smile">😊 Gülümseme</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Custom Icon Image Upload */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Özel İkon Görseli (Opsiyonel)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={feat.image || ''}
+                      onChange={(e) => {
+                        const updated = [...featuresBarItems]
+                        updated[fIdx] = { ...updated[fIdx], image: e.target.value }
+                        setFeaturesBarItems(updated)
+                      }}
+                      placeholder="https://... veya medya seçici kullanın"
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={() => openMediaPickerFor((url) => {
+                        const updated = [...featuresBarItems]
+                        updated[fIdx] = { ...updated[fIdx], image: url }
+                        setFeaturesBarItems(updated)
+                      })}
+                      className="px-3 py-2 bg-gray-100 rounded-xl text-xs font-bold hover:bg-gray-200 text-gray-700 transition-colors"
+                    >
+                      <FiImage className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ========== BRAND LOGOS TAB ========== */}
+        {activeTab === 'brandLogos' && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Marka Logoları (5 Dil)</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Her dil için farklı bir logo yükleyebilirsiniz. Navbar'da aktif dile göre gösterilir.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  setSaving(true)
+                  try {
+                    await saveBrandLogos(brandLogos)
+                    setSaveSuccess('brandLogos')
+                    setTimeout(() => setSaveSuccess(null), 3000)
+                  } catch (err: any) {
+                    alert(`Hata: ${err.message}`)
+                  } finally {
+                    setSaving(false)
+                  }
+                }}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {saving ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : saveSuccess === 'brandLogos' ? (
+                  <FiCheck className="w-4 h-4" />
+                ) : (
+                  <FiSave className="w-4 h-4" />
+                )}
+                Kaydet
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {(['tr', 'en', 'de', 'fr', 'it'] as const).map((lang) => {
+                const flags: Record<string, string> = { tr: '🇹🇷', en: '🇬🇧', de: '🇩🇪', fr: '🇫🇷', it: '🇮🇹' }
+                const names: Record<string, string> = { tr: 'Türkçe', en: 'English', de: 'Deutsch', fr: 'Français', it: 'Italiano' }
+                return (
+                  <div key={lang} className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{flags[lang]}</span>
+                      <span className="text-sm font-black text-gray-800">{names[lang]} Logo</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={(brandLogos as any)[lang] || ''}
+                        onChange={(e) => setBrandLogos((prev) => ({ ...prev, [lang]: e.target.value }))}
+                        placeholder="Logo URL..."
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={() => openMediaPickerFor((url) => setBrandLogos((prev) => ({ ...prev, [lang]: url })))}
+                        className="px-3 py-2 bg-gray-100 rounded-xl text-xs font-bold hover:bg-gray-200 text-gray-700 transition-colors"
+                      >
+                        <FiImage className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {(brandLogos as any)[lang] && (
+                      <div className="h-16 bg-gray-50 rounded-xl flex items-center justify-center p-2">
+                        <img src={(brandLogos as any)[lang]} alt={`${names[lang]} Logo`} className="max-h-full max-w-full object-contain" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Default / Fallback Logo */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🌐</span>
+                <span className="text-sm font-black text-gray-800">Varsayılan Logo (Fallback)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={brandLogos.default || ''}
+                  onChange={(e) => setBrandLogos((prev) => ({ ...prev, default: e.target.value }))}
+                  placeholder="Fallback logo URL..."
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+                <button
+                  onClick={() => openMediaPickerFor((url) => setBrandLogos((prev) => ({ ...prev, default: url })))}
+                  className="px-3 py-2 bg-gray-100 rounded-xl text-xs font-bold hover:bg-gray-200 text-gray-700 transition-colors"
+                >
+                  <FiImage className="w-4 h-4" />
+                </button>
+              </div>
+              {brandLogos.default && (
+                <div className="h-16 bg-gray-50 rounded-xl flex items-center justify-center p-2">
+                  <img src={brandLogos.default} alt="Default Logo" className="max-h-full max-w-full object-contain" />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 1. UNLIMITED EDITORIAL STORIES TAB */}
         {activeTab === 'stories' && (
@@ -1020,6 +2062,40 @@ export default function ContentStudioPage() {
               </div>
             </div>
 
+            {/* Bölüm Başlık Ayarları */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Üst Rozet</label>
+                <input
+                  type="text"
+                  value={benefitsHeader.badge || ''}
+                  onChange={(e) => setBenefitsHeader({ ...benefitsHeader, badge: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold"
+                  placeholder="GÜLÜMSE FARKI"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Ana Başlık</label>
+                <input
+                  type="text"
+                  value={benefitsHeader.title || ''}
+                  onChange={(e) => setBenefitsHeader({ ...benefitsHeader, title: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold"
+                  placeholder="5 Temel Marka Değeri."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Alt Açıklama</label>
+                <input
+                  type="text"
+                  value={benefitsHeader.subtitle || ''}
+                  onChange={(e) => setBenefitsHeader({ ...benefitsHeader, subtitle: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                  placeholder="Açıklama metni..."
+                />
+              </div>
+            </div>
+
             <div className="space-y-4">
               {benefits.map((b, index) => (
                 <div key={b.id} className="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 items-center">
@@ -1300,6 +2376,15 @@ export default function ContentStudioPage() {
         )}
 
       </div>
+
+      {/* Showcase Product Picker Modal */}
+      <ShowcaseProductPickerModal
+        isOpen={showcasePickerOpen}
+        onClose={() => setShowcasePickerOpen(false)}
+        sideTitle={showcasePickerSide === 'left' ? 'Sol Alan (Otomatik) İçin Ürün Seç' : 'Sağ Alan (Kullan At) İçin Ürün Seç'}
+        alreadySelectedProductIds={(showcase[showcasePickerSide]?.items || []).map((i) => i.productId)}
+        onSelect={(product) => addProductToShowcase(showcasePickerSide, product)}
+      />
 
       {/* Global Media Picker Modal */}
       <MediaPickerModal

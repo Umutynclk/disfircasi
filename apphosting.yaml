@@ -1,0 +1,59 @@
+runConfig:
+  minInstances: 0
+
+env:
+  - variable: PAYTR_MERCHANT_ID
+    secret: PAYTR_MERCHANT_ID
+
+  - variable: PAYTR_MERCHANT_KEY
+    secret: PAYTR_MERCHANT_KEY
+
+  - variable: PAYTR_MERCHANT_SALT
+    secret: PAYTR_MERCHANT_SALT
+
+  - variable: PAYTR_TEST_MODE
+    value: "0"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: PAYTR_DEBUG_ON
+    value: "0"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: PAYTR_TIMEOUT_LIMIT
+    value: "30"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_APP_URL
+    value: "https://sonrakam.com"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # --- HepsiJET Kargo Entegrasyonu ---
+  - variable: HEPSIJET_BASE_URL
+    value: "https://integration.hepsijet.com"
+    availability:
+      - RUNTIME
+
+  - variable: HEPSIJET_USERNAME
+    value: "kaliport_integration"
+    availability:
+      - RUNTIME
+
+  - variable: HEPSIJET_PASSWORD
+    secret: HEPSIJET_PASSWORD
+
+  - variable: HEPSIJET_LIVE_DISPATCH_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+
+  # --- Cron / Zamanlayıcı Kimlik Doğrulama ---
+  - variable: CRON_SECRET
+    secret: CRON_SECRET

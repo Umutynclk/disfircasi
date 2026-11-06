@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { getCurrentUser } from '@/lib/firebase/auth'
+import { getCurrentUser, isUserAdmin, logoutAdmin } from '@/lib/firebase/auth'
 import { User } from 'firebase/auth'
 import Link from 'next/link'
 import { FiPackage, FiSettings, FiLogOut, FiImage, FiHome, FiShield, FiEdit3, FiShoppingBag, FiTag, FiGrid } from 'react-icons/fi'
@@ -31,16 +31,25 @@ export default function AdminLayout({
       const currentUser = await getCurrentUser()
       if (!currentUser) {
         router.push('/admin/login')
-      } else {
-        setUser(currentUser)
+        setLoading(false)
+        return
       }
+
+      const isAdmin = await isUserAdmin(currentUser)
+      if (!isAdmin) {
+        await logoutAdmin()
+        router.push('/admin/login?error=unauthorized')
+        setLoading(false)
+        return
+      }
+
+      setUser(currentUser)
       setLoading(false)
     }
     checkAuth()
   }, [router, pathname])
 
   const handleLogout = async () => {
-    const { logoutAdmin } = await import('@/lib/firebase/auth')
     await logoutAdmin()
     router.push('/admin/login')
   }

@@ -3,10 +3,12 @@ const path = require('path')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingRoot: path.join(__dirname),
 
   images: {
     unoptimized: false,
-    domains: ['firebasestorage.googleapis.com'],
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 60,
     remotePatterns: [
       {
         protocol: 'https',
@@ -19,28 +21,53 @@ const nextConfig = {
     ],
   },
 
-  serverExternalPackages: ['firebase', '@firebase/app', '@firebase/auth', '@firebase/firestore', '@firebase/storage'],
+  serverExternalPackages: [
+    'firebase',
+    '@firebase/app',
+    '@firebase/auth',
+    '@firebase/firestore',
+    '@firebase/storage',
+  ],
   transpilePackages: ['three'],
   compress: true,
   poweredByHeader: false,
 
   experimental: {
-    staleTimes: {
-      dynamic: 0,
-      static: 0,
-    },
+    optimizePackageImports: [
+      'framer-motion',
+      'react-icons',
+      'three',
+      '@react-three/fiber',
+      '@react-three/drei',
+    ],
   },
-
-
 
   async headers() {
     return [
       {
-        source: '/(.*)',
+        source: '/_next/static/:path*',
         headers: [
           {
             key: 'Cache-Control',
-            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/images/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800',
+          },
+        ],
+      },
+      {
+        source: '/fonts/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
           },
         ],
       },
@@ -53,4 +80,3 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-

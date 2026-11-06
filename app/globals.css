@@ -5,6 +5,7 @@
 @layer base {
   html {
     scroll-behavior: auto;
+    overflow-x: clip;
   }
   
   html.lenis, html.lenis body {
@@ -30,6 +31,12 @@
   body {
     @apply bg-white text-gray-900 antialiased selection:bg-brand-blue selection:text-white;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  img, video {
+    max-width: 100%;
   }
 }
 
@@ -37,13 +44,22 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
   
   .section-padding {
-    @apply px-4 sm:px-6 lg:px-12;
+    @apply px-3.5 sm:px-6 lg:px-8;
   }
   
   .container-custom {
-    @apply max-w-7xl mx-auto;
+    @apply max-w-[1800px] w-full mx-auto;
   }
 
   /* Glassmorphism Styles */
@@ -151,4 +167,63 @@
   }
 }
 
+/* iOS Safe Area — bottom nav and mobile drawer */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+  .pb-safe-add {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Prevent iOS Safari auto-zoom on input focus (font-size must be >= 16px) */
+@media screen and (max-width: 767px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="password"],
+  input[type="search"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch-action for smooth scrolling in horizontal carousels */
+.touch-pan-x {
+  touch-action: pan-x;
+}
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+/* Print Styles for Receipts & Packing Slips */
+/* NOT: Gerçek baskı ölçüleri page.tsx içindeki inline <style> tarafından
+   @page size ve #printable-receipt boyutlarıyla dinamik olarak belirlenir.
+   Bu kural sadece fallback/temel görünürlük kontrolü sağlar.
+   max-width ve position, inline !important kurallarıyla override edilir. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-receipt, #printable-receipt * {
+    visibility: visible;
+  }
+  #printable-receipt {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+}
 

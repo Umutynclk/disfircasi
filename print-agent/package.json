@@ -1,0 +1,22 @@
+{
+  "name": "kaliport-print-agent",
+  "version": "1.0.0",
+  "description": "KALIPORT PALMX TXP 400 Windows Termal Barkod Yazıcı Agent Servisi",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx index.ts",
+    "test:sample": "tsx index.ts --test-sample",
+    "test:sample:built": "node dist/index.js --test-sample"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
+  }
+}

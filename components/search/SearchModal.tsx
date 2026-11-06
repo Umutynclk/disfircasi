@@ -6,6 +6,7 @@ import { FiSearch, FiX, FiArrowRight, FiShoppingBag, FiTag } from 'react-icons/f
 import Link from 'next/link'
 import { collection, getDocs, query, limit } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
+import { useLocale } from '@/context/LocaleContext'
 
 interface SearchProduct {
   id: string
@@ -24,6 +25,7 @@ interface SearchModalProps {
 }
 
 export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
+  const { t, getLocalizedText, getLocalizedPath, formatPriceWithCurrency } = useLocale()
   const [searchTerm, setSearchTerm] = useState('')
   const [allProducts, setAllProducts] = useState<SearchProduct[]>([])
   const [results, setResults] = useState<SearchProduct[]>([])
@@ -82,7 +84,12 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     }
   }, [isOpen, onClose])
 
-  const popularSearches = ['Otomatik Diş Fırçası', 'Kullan At', 'Yedek Başlık', 'Sonic Temizlik', 'Beyazlatıcı']
+  const popularSearches = [
+    t.nav.automaticToothbrush,
+    t.nav.disposableToothbrush,
+    t.footer.refills,
+    '360° Sonic',
+  ]
 
   return (
     <AnimatePresence>
@@ -107,13 +114,13 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           >
             {/* Search Input Bar */}
             <div className="p-5 md:p-6 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
-              <FiSearch className="w-6 h-6 text-brand-blue flex-shrink-0" />
+              <FiSearch className="w-6 h-6 text-sky-600 flex-shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Ürün adı, özellik veya kategori ara..."
+                placeholder={t.search.placeholder}
                 className="w-full bg-transparent text-slate-800 placeholder-slate-400 text-base md:text-lg font-medium focus:outline-none"
               />
               {searchTerm && (
@@ -138,14 +145,14 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
               {!searchTerm && (
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-                    <FiTag className="w-3.5 h-3.5" /> Popüler Aramalar
+                    <FiTag className="w-3.5 h-3.5" /> {t.search.popularSearches}
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {popularSearches.map((tag) => (
                       <button
                         key={tag}
                         onClick={() => setSearchTerm(tag)}
-                        className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-brand-softBlue hover:text-brand-blue text-xs font-semibold text-slate-700 transition-colors"
+                        className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-xs font-semibold text-slate-700 transition-colors"
                       >
                         {tag}
                       </button>
@@ -157,7 +164,7 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
               {/* Loading State */}
               {loading && (
                 <div className="py-12 flex justify-center items-center">
-                  <div className="w-8 h-8 border-2 border-brand-blue/30 border-t-brand-blue rounded-full animate-spin" />
+                  <div className="w-8 h-8 border-2 border-sky-600/30 border-t-sky-600 rounded-full animate-spin" />
                 </div>
               )}
 
@@ -166,7 +173,7 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Sonuçlar ({results.length})
+                      {results.length} {t.productsSection.allCategory}
                     </h4>
                   </div>
 
@@ -175,60 +182,60 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
                       <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
                         <FiShoppingBag className="w-6 h-6" />
                       </div>
-                      <p className="text-sm font-semibold text-slate-700">"{searchTerm}" ile eşleşen ürün bulunamadı.</p>
-                      <p className="text-xs text-slate-400 mt-1">Farklı bir kelime deneyebilir veya tüm ürünlere göz atabilirsiniz.</p>
+                      <p className="text-sm font-semibold text-slate-700">{t.search.noResults}</p>
                       <Link
-                        href="/urunler"
+                        href={getLocalizedPath('/urunler')}
                         onClick={onClose}
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-blue hover:underline mt-4"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:underline mt-4"
                       >
-                        Tüm Ürünleri Gör <FiArrowRight className="w-3.5 h-3.5" />
+                        {t.productsSection.viewAll} <FiArrowRight className="w-3.5 h-3.5" />
                       </Link>
                     </div>
                   ) : (
                     <div className="space-y-2.5">
                       {results.map((product) => {
                         const img = product.images?.[0] || product.image
+                        const prodTitle = getLocalizedText(product.name as any, product.name)
                         return (
                           <Link
                             key={product.id}
-                            href={`/urunler/${product.id}`}
+                            href={`${getLocalizedPath('/urunler')}/${product.id}`}
                             onClick={onClose}
-                            className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50/70 hover:bg-brand-softBlue/60 border border-slate-100 hover:border-brand-blue/20 transition-all group"
+                            className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50/70 hover:bg-sky-50/60 border border-slate-100 hover:border-sky-200 transition-all group"
                           >
                             <div className="w-14 h-14 rounded-xl bg-white p-1.5 border border-slate-200/60 flex items-center justify-center flex-shrink-0 overflow-hidden">
                               {img ? (
-                                <img src={img} alt={product.name} className="w-full h-full object-contain" />
+                                <img src={img} alt={prodTitle} className="w-full h-full object-contain" />
                               ) : (
                                 <FiShoppingBag className="w-6 h-6 text-slate-300" />
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-blue">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600">
                                 {product.category?.replace(/-/g, ' ') || 'Dental Care'}
                               </span>
-                              <h5 className="text-sm font-bold text-slate-800 truncate group-hover:text-brand-blue transition-colors">
-                                {product.name}
+                              <h5 className="text-sm font-bold text-slate-800 truncate group-hover:text-sky-600 transition-colors">
+                                {prodTitle}
                               </h5>
-                              <p className="text-xs text-slate-500 truncate">{product.description}</p>
+                              <p className="text-xs text-slate-500 truncate">{getLocalizedText(product.description as any, product.description)}</p>
                             </div>
                             <div className="text-right flex-shrink-0">
                               {product.discountPrice ? (
                                 <div>
-                                  <span className="text-sm font-black text-brand-green">
-                                    {product.discountPrice.toLocaleString('tr-TR')} ₺
+                                  <span className="text-sm font-black text-emerald-600">
+                                    {formatPriceWithCurrency(product.discountPrice)}
                                   </span>
                                   <span className="block text-[10px] text-slate-400 line-through">
-                                    {product.price.toLocaleString('tr-TR')} ₺
+                                    {formatPriceWithCurrency(product.price)}
                                   </span>
                                 </div>
                               ) : (
                                 <span className="text-sm font-black text-slate-900">
-                                  {product.price?.toLocaleString('tr-TR')} ₺
+                                  {formatPriceWithCurrency(product.price)}
                                 </span>
                               )}
                             </div>
-                            <FiArrowRight className="w-4 h-4 text-slate-400 group-hover:text-brand-blue group-hover:translate-x-1 transition-all" />
+                            <FiArrowRight className="w-4 h-4 text-slate-400 group-hover:text-sky-600 group-hover:translate-x-1 transition-all" />
                           </Link>
                         )
                       })}
@@ -241,11 +248,11 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
             {/* Footer Quick Link */}
             <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
               <Link
-                href="/urunler"
+                href={getLocalizedPath('/urunler')}
                 onClick={onClose}
-                className="text-xs font-semibold text-slate-600 hover:text-brand-blue transition-colors inline-flex items-center gap-1"
+                className="text-xs font-semibold text-slate-600 hover:text-sky-600 transition-colors inline-flex items-center gap-1"
               >
-                Tüm Ürün Kataloğunu İncele <FiArrowRight className="w-3.5 h-3.5" />
+                {t.productsSection.viewAll} <FiArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </motion.div>

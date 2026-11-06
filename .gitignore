@@ -36,5 +36,18 @@ next-env.d.ts
 # firebase
 .firebase
 firebase-debug.log
+firebase-debug*.log
+disfircasi-deploy.zip
+simulated_prints/
+tests/temp_*
 
+# IDE / agent local metadata
+.agents/
+.claude/
+
+
+
+# Environment variables
+.env*
+!.env.example
 
