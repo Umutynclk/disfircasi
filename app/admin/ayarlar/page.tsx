@@ -3938,7 +3938,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
-                  <span className="text-[10px] font-bold text-slate-600 block uppercase tracking-wider">Toplam İşlem</span>
+                  <span className="text-[10px] font-bold text-slate-600 block uppercase tracking-wider">Toplam Kuyruk (Kayıt)</span>
                   <span className="text-xl font-black text-slate-800 mt-0.5 block">{printQueueStats?.total ?? 0}</span>
                   <span className="text-[10px] text-slate-500">Tüm kuyruk kaydı</span>
                 </div>
