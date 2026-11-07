@@ -338,37 +338,6 @@ function CheckoutContent() {
   const [activeModal, setActiveModal] = useState<'sozlesme' | 'onbilgi' | 'kvkk' | null>(null)
   const [legalConfig, setLegalConfig] = useState<LegalDocumentsConfig>(DEFAULT_LEGAL_CONFIG)
 
-  // Legal Agreements Scroll & Reading Verification
-  const [agreementRead, setAgreementRead] = useState(false)
-  const [kvkkRead, setKvkkRead] = useState(false)
-  const [modalScrolledToBottom, setModalScrolledToBottom] = useState(false)
-  const modalScrollRef = useRef<HTMLDivElement>(null)
-
-  // Reset scroll check when modal opens
-  useEffect(() => {
-    if (activeModal) {
-      setModalScrolledToBottom(false)
-      const timer = setTimeout(() => {
-        if (modalScrollRef.current) {
-          const { scrollHeight, clientHeight } = modalScrollRef.current
-          if (scrollHeight <= clientHeight + 30) {
-            setModalScrolledToBottom(true)
-          }
-        }
-      }, 150)
-      return () => clearTimeout(timer)
-    }
-  }, [activeModal])
-
-  const handleModalScroll = () => {
-    if (modalScrollRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = modalScrollRef.current
-      if (scrollTop + clientHeight >= scrollHeight - 35) {
-        setModalScrolledToBottom(true)
-      }
-    }
-  }
-
   const [submitting, setSubmitting] = useState(false)
   const [orderComplete, setOrderComplete] = useState(false)
   const [orderVerifying, setOrderVerifying] = useState(false)
@@ -458,11 +427,18 @@ function CheckoutContent() {
         } catch (e) {
           console.warn('Preload user data warning:', e)
         }
+      } else {
+        // Kullanıcı giriş yapmamışsa ve ödeme callback akışında değilse login sayfasına yönlendir
+        if (!isReturnFlow && !isErrorReturn) {
+          const paramsStr = searchParams.toString()
+          const currentPath = `/satin-al${paramsStr ? `?${paramsStr}` : ''}`
+          router.replace(`/giris?redirect=${encodeURIComponent(currentPath)}`)
+        }
       }
       setAuthChecking(false)
     })
     return () => unsub()
-  }, [])
+  }, [router, searchParams, isReturnFlow, isErrorReturn])
 
   // 3. Load Shipping Fee
   useEffect(() => {
@@ -653,10 +629,11 @@ function CheckoutContent() {
     e.preventDefault()
     setPaymentError(null)
 
-    // Guest checkout allowed — soft prompt only
+    // Guest checkout prohibited — must be authenticated
     if (!currentUser) {
-      const proceed = window.confirm('Hesabınıza giriş yapmadan devam ediyorsunuz. Sipariş takibi için e-posta adresinizi kullanabilirsiniz.\n\nDevam etmek istiyor musunuz?')
-      if (!proceed) return
+      const currentQuery = searchParams.toString()
+      router.push(`/giris?redirect=${encodeURIComponent(`/satin-al${currentQuery ? `?${currentQuery}` : ''}`)}`)
+      return
     }
 
     if (!customerType) {
@@ -795,12 +772,23 @@ function CheckoutContent() {
     // CASE 1: KREDİ KARTI / PAYTR IFRAME İLE ÖDEME
     if (paymentMethod === 'card') {
       try {
+        const idToken = await currentUser?.getIdToken?.()
+        if (!idToken) {
+          setPaymentError('Oturum bilgisi doğrulanamadı. Lütfen tekrar giriş yapınız.')
+          router.push(`/giris?redirect=${encodeURIComponent('/satin-al')}`)
+          setSubmitting(false)
+          return
+        }
+
         const initRes = await fetch('/api/paytr/initialize', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
           body: JSON.stringify({
-            userId: currentUser?.uid || 'guest',
-            userEmail: currentUser?.email || formData.email.trim(),
+            userId: currentUser.uid,
+            userEmail: currentUser.email || formData.email.trim(),
             currency,
             customerType,
             billingInfo: resolvedBillingInfo,
@@ -859,8 +847,8 @@ function CheckoutContent() {
         id: orderNumber,
         orderNumber,
         merchant_oid: orderNumber,
-        userId: currentUser?.uid || 'guest',
-        userEmail: currentUser?.email || formData.email,
+        userId: currentUser.uid,
+        userEmail: currentUser.email || formData.email,
         customer: {
           name: formData.name,
           email: formData.email,
@@ -921,6 +909,15 @@ function CheckoutContent() {
   }
 
   if (loading || authChecking) {
+    return (
+      <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-600"></div>
+      </div>
+    )
+  }
+
+  // Giriş yapmamış kullanıcı satın alma ekranında kalamaz (yönlendirme süresince koruma)
+  if (!currentUser && !isReturnFlow && !isErrorReturn) {
     return (
       <div className="pt-36 pb-24 min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-600"></div>
@@ -1370,22 +1367,6 @@ function CheckoutContent() {
                 </div>
               </div>
 
-              {/* Guest Login Banner */}
-              {!currentUser && (
-                <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200">
-                  <FiLogIn className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-amber-900">Üye girişi yaparak daha hızlı sipariş verin</p>
-                    <p className="text-[11px] text-amber-700 mt-0.5">Kayıtlı adreslerinizi kullanabilir, siparişlerinizi takip edebilirsiniz.</p>
-                  </div>
-                  <Link
-                    href={`${getLocalizedPath('/giris')}?redirect=${encodeURIComponent(getLocalizedPath('/satin-al'))}`}
-                    className="flex-shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[11px] font-bold transition-colors"
-                  >
-                    Giriş Yap
-                  </Link>
-                </div>
-              )}
 
               {/* Saved Address Cards (only for logged-in users with saved addresses) */}
               {currentUser && savedAddresses.length > 0 && (
@@ -2061,19 +2042,8 @@ function CheckoutContent() {
                     <input
                       type="checkbox"
                       checked={agreementAccepted}
-                      disabled={!agreementRead}
-                      onChange={(e) => {
-                        if (!agreementRead) {
-                          setActiveModal('onbilgi')
-                          return
-                        }
-                        setAgreementAccepted(e.target.checked)
-                      }}
-                      className={`mt-0.5 w-4 h-4 rounded border-slate-300 focus:ring-sky-500 ${
-                        !agreementRead
-                          ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
-                          : 'text-sky-600 cursor-pointer'
-                      }`}
+                      onChange={(e) => setAgreementAccepted(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
                     />
                     <span className="text-xs text-slate-600 leading-normal">
                       <button
@@ -2094,11 +2064,6 @@ function CheckoutContent() {
                       &apos;ni okudum, kabul ediyorum. <span className="text-rose-500">*</span>
                     </span>
                   </label>
-                  {!agreementRead && (
-                    <p className="text-[10px] text-amber-600 font-semibold pl-7">
-                      ℹ️ Kutucuğu işaretleyebilmek için lütfen önce Ön Bilgilendirme Formu&apos;nu açıp sonuna kadar okuyunuz.
-                    </p>
-                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -2106,19 +2071,8 @@ function CheckoutContent() {
                     <input
                       type="checkbox"
                       checked={kvkkAccepted}
-                      disabled={!kvkkRead}
-                      onChange={(e) => {
-                        if (!kvkkRead) {
-                          setActiveModal('kvkk')
-                          return
-                        }
-                        setKvkkAccepted(e.target.checked)
-                      }}
-                      className={`mt-0.5 w-4 h-4 rounded border-slate-300 focus:ring-sky-500 ${
-                        !kvkkRead
-                          ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
-                          : 'text-sky-600 cursor-pointer'
-                      }`}
+                      onChange={(e) => setKvkkAccepted(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
                     />
                     <span className="text-xs text-slate-600 leading-normal">
                       <button
@@ -2139,11 +2093,6 @@ function CheckoutContent() {
                       &apos;nı okudum, onaylıyorum. <span className="text-rose-500">*</span>
                     </span>
                   </label>
-                  {!kvkkRead && (
-                    <p className="text-[10px] text-amber-600 font-semibold pl-7">
-                      ℹ️ Kutucuğu işaretleyebilmek için lütfen önce KVKK Aydınlatma Metni&apos;ni açıp sonuna kadar okuyunuz.
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -2417,9 +2366,7 @@ function CheckoutContent() {
               </div>
 
               <div
-                ref={modalScrollRef}
-                onScroll={handleModalScroll}
-                className="p-4 sm:p-6 overflow-y-auto text-xs text-slate-600 space-y-4 leading-relaxed"
+                className="p-4 sm:p-6 overflow-y-auto max-h-[60vh] text-xs text-slate-600 space-y-4 leading-relaxed"
               >
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-0.5">
                   <p className="font-bold text-slate-800">SATICI: {legalConfig.company.title}</p>
@@ -2448,31 +2395,12 @@ function CheckoutContent() {
 
               <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <span className="text-[11px] font-medium text-slate-500">
-                  {!modalScrolledToBottom ? (
-                    <span className="text-amber-600 font-semibold flex items-center gap-1">
-                      <span>⬇️</span>
-                      <span>TAMAM butonunun aktif olması için metnin sonuna kadar kaydırınız.</span>
-                    </span>
-                  ) : (
-                    <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                      <span>✅</span>
-                      <span>Metin sonuna ulaşıldı. TAMAM butonuna basarak pencereyi kapatabilirsiniz.</span>
-                    </span>
-                  )}
+                  Metni inceledikten sonra pencereyi kapatabilirsiniz.
                 </span>
                 <button
                   type="button"
-                  disabled={!modalScrolledToBottom}
-                  onClick={() => {
-                    if (activeModal === 'sozlesme' || activeModal === 'onbilgi') setAgreementRead(true)
-                    if (activeModal === 'kvkk') setKvkkRead(true)
-                    setActiveModal(null)
-                  }}
-                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex-shrink-0 ${
-                    !modalScrolledToBottom
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 active:scale-95'
-                  }`}
+                  onClick={() => setActiveModal(null)}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex-shrink-0 bg-sky-600 hover:bg-sky-700 text-white shadow-md shadow-sky-600/20 active:scale-95"
                 >
                   TAMAM
                 </button>

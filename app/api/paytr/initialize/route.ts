@@ -4,7 +4,7 @@ import {
   getPayTRToken,
   PayTRBasketItem,
 } from '@/lib/paytr'
-import { getAdminFirestore } from '@/lib/firebase/admin'
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase/admin'
 import { validateTCKimlik, validateVergiNo, validateCorporateTaxNumber } from '@/lib/utils/taxValidation'
 import { cleanFirestoreData } from '@/lib/firebase/firestoreUtils'
 
@@ -99,6 +99,35 @@ export async function POST(
   req: NextRequest,
 ) {
   try {
+    // --------------------------------------------------
+    // 0. AUTHENTICATION VALIDATION (Zorunlu Kullanıcı Girişi)
+    // --------------------------------------------------
+    const authHeader = req.headers.get('authorization') || ''
+    if (!authHeader.startsWith('Bearer ')) {
+      return errorResponse('Sipariş oluşturabilmek için lütfen hesabınıza giriş yapınız.', 401)
+    }
+
+    const token = authHeader.replace('Bearer ', '').trim()
+    if (!token) {
+      return errorResponse('Geçersiz oturum belirteci.', 401)
+    }
+
+    let verifiedUid = ''
+    let verifiedEmail = ''
+    try {
+      const adminAuth = getAdminAuth()
+      const decoded = await adminAuth.verifyIdToken(token)
+      verifiedUid = decoded.uid
+      verifiedEmail = (decoded.email || '').toLowerCase().trim()
+    } catch (authErr: any) {
+      console.warn('PayTR initialize auth error:', authErr?.message || authErr)
+      return errorResponse('Oturumunuzun süresi dolmuş veya geçersiz. Lütfen tekrar giriş yapınız.', 401)
+    }
+
+    if (!verifiedUid) {
+      return errorResponse('Yetkilendirilmiş kullanıcı bulunamadı.', 401)
+    }
+
     const body = await req.json()
 
     const {
@@ -750,16 +779,10 @@ export async function POST(
       merchant_oid:
         merchantOid,
 
-      userId:
-        typeof userId === 'string' &&
-          userId.trim()
-          ? userId.trim()
-          : 'guest',
+      userId: verifiedUid,
 
-      // Client'tan gelen userEmail yerine
-      // doğrulanmış checkout email'i kullanıyoruz.
-      userEmail:
-        customerEmail,
+      // Sunucu tarafından doğrulanmış e-posta veya checkout e-postası
+      userEmail: verifiedEmail || customerEmail,
 
       customer: {
         name: customerName,

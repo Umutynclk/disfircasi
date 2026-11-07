@@ -240,9 +240,18 @@ export default function CartPage() {
               </div>
 
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (typeof window !== 'undefined') {
                     localStorage.setItem('checkout_cart', JSON.stringify(cart))
+                    try {
+                      const currentUser = await getCurrentUser()
+                      if (!currentUser) {
+                        router.push(`/giris?redirect=${encodeURIComponent('/satin-al?sepet=true')}`)
+                        return
+                      }
+                    } catch (e) {
+                      console.warn('Auth check error:', e)
+                    }
                     router.push('/satin-al?sepet=true')
                   }
                 }}

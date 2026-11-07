@@ -119,7 +119,11 @@ const REGISTER_TRANSLATIONS = {
 function RegisterContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectPath = searchParams.get('redirect') || '/'
+  const rawRedirect = searchParams.get('redirect') || '/'
+  const redirectPath =
+    rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') && !rawRedirect.includes('://')
+      ? rawRedirect
+      : '/'
   const { locale, getLocalizedPath } = useLocale()
   const loc = REGISTER_TRANSLATIONS[locale] || REGISTER_TRANSLATIONS.tr
 

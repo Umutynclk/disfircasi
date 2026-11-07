@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { initializeIyzicoCheckout, isIyzicoConfigured, IyzicoInitializeRequest } from '@/lib/iyzico'
-import { getAdminFirestore } from '@/lib/firebase/admin'
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase/admin'
 
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ success: false, error: message }, { status })
@@ -19,6 +19,33 @@ function normalizePhone(value: unknown): string {
 
 export async function POST(req: NextRequest) {
   try {
+    // 0. AUTHENTICATION VALIDATION (Zorunlu Kullanıcı Girişi)
+    const authHeader = req.headers.get('authorization') || ''
+    if (!authHeader.startsWith('Bearer ')) {
+      return errorResponse('Sipariş oluşturabilmek için lütfen hesabınıza giriş yapınız.', 401)
+    }
+
+    const token = authHeader.replace('Bearer ', '').trim()
+    if (!token) {
+      return errorResponse('Geçersiz oturum belirteci.', 401)
+    }
+
+    let verifiedUid = ''
+    let verifiedEmail = ''
+    try {
+      const adminAuth = getAdminAuth()
+      const decoded = await adminAuth.verifyIdToken(token)
+      verifiedUid = decoded.uid
+      verifiedEmail = (decoded.email || '').toLowerCase().trim()
+    } catch (authErr: any) {
+      console.warn('iyzico initialize auth error:', authErr?.message || authErr)
+      return errorResponse('Oturumunuzun süresi dolmuş veya geçersiz. Lütfen tekrar giriş yapınız.', 401)
+    }
+
+    if (!verifiedUid) {
+      return errorResponse('Yetkilendirilmiş kullanıcı bulunamadı.', 401)
+    }
+
     if (!isIyzicoConfigured()) {
       return errorResponse(
         'iyzico ödeme altyapısı henüz yapılandırılmamış. Lütfen ortam değişkenlerini kontrol edin.',
@@ -180,8 +207,8 @@ export async function POST(req: NextRequest) {
       id: orderNumber,
       orderNumber,
       merchant_oid: orderNumber,
-      userId: typeof userId === 'string' && userId.trim() ? userId.trim() : 'guest',
-      userEmail: customerEmail,
+      userId: verifiedUid,
+      userEmail: verifiedEmail || customerEmail,
       customer: {
         name: customer.name.trim(),
         email: customerEmail,
@@ -223,7 +250,7 @@ export async function POST(req: NextRequest) {
       callbackUrl,
       enabledInstallments: [1, 2, 3, 6, 9, 12],
       buyer: {
-        id: typeof userId === 'string' && userId.trim() ? userId.trim() : 'guest',
+        id: verifiedUid,
         name: buyerName,
         surname: buyerSurname,
         gsmNumber: rawPhone.startsWith('90') ? `+${rawPhone}` : `+90${rawPhone.replace(/^0/, '')}`,

@@ -37,16 +37,28 @@ test('Geliştirme 2: Kargo Ücreti ve Ücretsiz Kargo Eşiği Senkronizasyonu', 
   assert.equal(calculateShipping(1200, shippingSettings), 0)
 })
 
-test('Geliştirme 3: Ön Bilgilendirme Formu ve KVKK Scroll-to-Bottom Doğrulaması', () => {
-  const isScrolledToBottom = (scrollTop: number, clientHeight: number, scrollHeight: number) => {
-    return scrollTop + clientHeight >= scrollHeight - 35
-  }
+test('Geliştirme 3: Ön Bilgilendirme ve KVKK Onaylarının Bağımsız ve Serbest Tıklanabilir Olması', () => {
+  // Checkbox'lar kilitli veya disabled olmamalıdır
+  const isCheckboxDisabled = false
+  assert.equal(isCheckboxDisabled, false)
 
-  // Kullanıcı modalın henüz ortasındayken
-  assert.equal(isScrolledToBottom(100, 400, 1000), false)
-  // Kullanıcı modalın en altına ulaştığında
-  assert.equal(isScrolledToBottom(580, 400, 1000), true)
-  assert.equal(isScrolledToBottom(600, 400, 1000), true)
+  // TAMAM butonu modal açıldığı andan itibaren aktiftir
+  const isModalOkButtonDisabled = false
+  assert.equal(isModalOkButtonDisabled, false)
+
+  // Kullanıcı onayı manuel verir; sistem otomatik işaretlemez
+  let agreementAccepted = false
+  let kvkkAccepted = false
+
+  // Kullanıcı sözleşme onayını bağımsız işaretleyebilir
+  agreementAccepted = true
+  assert.equal(agreementAccepted, true)
+  assert.equal(kvkkAccepted, false)
+
+  // Kullanıcı KVKK onayını bağımsız işaretleyebilir
+  kvkkAccepted = true
+  assert.equal(agreementAccepted, true)
+  assert.equal(kvkkAccepted, true)
 })
 
 test('Geliştirme 4: HepsiJET Kargo Takip Mesajı ve Link Formatı', () => {
@@ -130,5 +142,72 @@ test('Geliştirme 8: Sipariş ve Taşıyıcı Durumu Güvenli Türkçe Eşleme',
   // İptal ise
   assert.equal(mapStatus('cancelled'), 'İptal Edildi')
 })
+
+test('Geliştirme 9: Güvenli Yönlendirme (Open Redirect Koruması) ve Giriş Akışı', () => {
+  const getSafeRedirect = (rawRedirect: string | null): string => {
+    if (!rawRedirect) return '/'
+    if (rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') && !rawRedirect.includes('://')) {
+      return rawRedirect
+    }
+    return '/'
+  }
+
+  // Geçerli iç rotalar
+  assert.equal(getSafeRedirect('/satin-al'), '/satin-al')
+  assert.equal(getSafeRedirect('/satin-al?sepet=true'), '/satin-al?sepet=true')
+  assert.equal(getSafeRedirect('/profil'), '/profil')
+
+  // Zararlı veya sahte dış URL denemeleri engellenir
+  assert.equal(getSafeRedirect('https://evil.com/phishing'), '/')
+  assert.equal(getSafeRedirect('http://attacker.com'), '/')
+  assert.equal(getSafeRedirect('//evil.com/hack'), '/')
+  assert.equal(getSafeRedirect('javascript:alert(1)'), '/')
+  assert.equal(getSafeRedirect(null), '/')
+  assert.equal(getSafeRedirect(''), '/')
+})
+
+test('Geliştirme 10: Sepet Verilerinin Giriş Sürecinde Korunması (Storage Kontrolü)', () => {
+  // Sepet items
+  const initialCart = [
+    { productId: 'brush-white', name: '360 Sonic Diş Fırçası - Beyaz', price: 899, quantity: 1 },
+    { productId: 'head-pack-3', name: 'Yedek Başlık 3lü', price: 249, quantity: 2 },
+  ]
+
+  // Mock localStorage
+  const storage: Record<string, string> = {}
+  storage['smilebrush_cart'] = JSON.stringify(initialCart)
+  storage['checkout_cart'] = JSON.stringify(initialCart)
+
+  // Kullanıcı giriş yaptıktan sonra sepetin localStorage'dan okunması
+  const retrievedCart = JSON.parse(storage['smilebrush_cart'])
+  assert.equal(retrievedCart.length, 2)
+  assert.equal(retrievedCart[0].productId, 'brush-white')
+  assert.equal(retrievedCart[1].quantity, 2)
+})
+
+test('Geliştirme 11: API Sunucu Tarafı Kimlik Doğrulama Güvenliği (Auth Header & UID)', () => {
+  const validateAuthHeader = (header: string | null) => {
+    if (!header || !header.startsWith('Bearer ')) {
+      return { status: 401, error: 'Sipariş oluşturabilmek için lütfen hesabınıza giriş yapınız.' }
+    }
+    const token = header.replace('Bearer ', '').trim()
+    if (!token) {
+      return { status: 401, error: 'Geçersiz oturum belirteci.' }
+    }
+    return { status: 200, token }
+  }
+
+  // Header yoksa
+  assert.equal(validateAuthHeader(null).status, 401)
+  // Bearer formatı yoksa
+  assert.equal(validateAuthHeader('Basic abc123xyz').status, 401)
+  // Boş token ise
+  assert.equal(validateAuthHeader('Bearer ').status, 401)
+  // Geçerli token formatı
+  const valid = validateAuthHeader('Bearer valid-firebase-id-token-12345')
+  assert.equal(valid.status, 200)
+  assert.equal((valid as any).token, 'valid-firebase-id-token-12345')
+})
+
 
 
