@@ -48,7 +48,13 @@ export function startSession(rememberMe: boolean, role: 'user' | 'admin' = 'user
 
   // Çerezleri güncelle (Sunucu ve Middleware erişimi için)
   const isUnlimited = isUnlimitedSessionUser(email)
-  const maxAge = isUnlimited ? 365 * 24 * 3600 : rememberMe ? 7 * 24 * 3600 : 15 * 60
+  const maxAge = isUnlimited
+    ? 365 * 24 * 3600
+    : role === 'user'
+    ? 30 * 24 * 3600 // E-ticaret müşterisi: 30 günlük standart kalıcı oturum
+    : rememberMe
+    ? 7 * 24 * 3600 // Admin beni hatırla: 7 gün
+    : 15 * 60 // Admin normal: 15 dakika hareketsizlik
   document.cookie = `gulumse_session_active=1; path=/; max-age=${maxAge}; SameSite=Lax`
   document.cookie = `gulumse_remember_me=${rememberMe ? '1' : '0'}; path=/; max-age=${maxAge}; SameSite=Lax`
   document.cookie = `gulumse_last_active=${now}; path=/; max-age=${maxAge}; SameSite=Lax`
@@ -92,6 +98,12 @@ export function checkSessionValidity(currentUserEmail?: string | null): { valid:
     return { valid: true }
   }
 
+  const sessionRole = localStorage.getItem(STORAGE_KEYS.ROLE)
+  // 2. Normal e-ticaret müşterileri 15 dakikalık katı hareketsizlikten etkilenmez
+  if (sessionRole === 'user') {
+    return { valid: true }
+  }
+
   const sessionStartStr = localStorage.getItem(STORAGE_KEYS.SESSION_START)
   const lastActiveStr = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVE)
   const rememberMeStr = localStorage.getItem(STORAGE_KEYS.REMEMBER_ME)
@@ -105,7 +117,7 @@ export function checkSessionValidity(currentUserEmail?: string | null): { valid:
   const rememberMe = rememberMeStr === '1'
   const now = Date.now()
 
-  // 2. Beni Hatırla için 7 günlük azami sınır kontrolü
+  // 3. Admin Beni Hatırla için 7 günlük azami sınır kontrolü
   if (rememberMe) {
     if (now - sessionStart > MAX_REMEMBER_ME_DURATION_MS) {
       return { valid: false, reason: 'max_duration' }
@@ -113,7 +125,7 @@ export function checkSessionValidity(currentUserEmail?: string | null): { valid:
     return { valid: true }
   }
 
-  // 3. Normal kullanıcılar için 15 dakikalık hareketsizlik kontrolü
+  // 4. Admin normal oturumu için 15 dakikalık hareketsizlik kontrolü
   if (now - lastActive > INACTIVITY_TIMEOUT_MS) {
     return { valid: false, reason: 'inactive' }
   }

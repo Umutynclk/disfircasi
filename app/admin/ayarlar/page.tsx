@@ -118,6 +118,11 @@ export default function SettingsPage() {
       twitter: '',
     },
   })
+  const [shippingConfig, setShippingConfig] = useState({
+    shippingFee: 0,
+    freeShippingThreshold: 500,
+    deliveryTime: '1-3 İş Günü',
+  })
   const [currencyConfig, setCurrencyConfig] = useState<FullCurrencyConfig>(DEFAULT_CURRENCY_CONFIG)
   const [legalConfig, setLegalConfig] = useState<LegalDocumentsConfig>(DEFAULT_LEGAL_CONFIG)
   const [printAgents, setPrintAgents] = useState<any[]>([])
@@ -628,6 +633,18 @@ export default function SettingsPage() {
       if (settingsSnap.exists()) {
         setSettings(settingsSnap.data() as SiteSettings)
       }
+
+      // Kargo ve teslimat ayarlarını siteContent/shipping üzerinden çek
+      const shippingRef = doc(db, 'siteContent', 'shipping')
+      const shippingSnap = await getDoc(shippingRef)
+      if (shippingSnap.exists()) {
+        const shipData = shippingSnap.data()
+        setShippingConfig({
+          shippingFee: Number(shipData.shippingFee ?? 0),
+          freeShippingThreshold: Number(shipData.freeShippingThreshold ?? 500),
+          deliveryTime: shipData.deliveryTime || '1-3 İş Günü',
+        })
+      }
     } catch (error) {
       console.error('Settings fetch error:', error)
     } finally {
@@ -646,11 +663,24 @@ export default function SettingsPage() {
       }
       await setDoc(settingsRef, dataToSave, { merge: true })
 
+      // Kargo ve teslimat ayarlarını siteContent/shipping içine kaydet
+      const shippingRef = doc(db, 'siteContent', 'shipping')
+      await setDoc(
+        shippingRef,
+        {
+          shippingFee: Number(shippingConfig.shippingFee) || 0,
+          freeShippingThreshold: Number(shippingConfig.freeShippingThreshold) || 0,
+          deliveryTime: shippingConfig.deliveryTime || '1-3 İş Günü',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      )
+
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('settingsUpdated'))
       }
 
-      alert('✅ Ayarlar başarıyla Firebase\'e kaydedildi!')
+      alert('✅ Ayarlar ve Kargo Bilgileri başarıyla Firebase\'e kaydedildi!')
     } catch (error: any) {
       console.error('❌ Settings save error:', error)
       alert(`❌ Ayarlar kaydedilirken bir hata oluştu: ${error.message || 'Bilinmeyen hata'}`)
@@ -991,6 +1021,62 @@ export default function SettingsPage() {
                     placeholder="https://twitter.com/..."
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Kargo ve Teslimat Ayarları (siteContent/shipping) */}
+            <div className="p-5 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex items-center gap-2 mb-2">
+                <FiTruck className="w-5 h-5 text-primary-600" />
+                <h2 className="text-base font-bold text-gray-900">Kargo & Teslimat Ücreti Yönetimi</h2>
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                Sepet, ödeme ağ geçitleri (PayTR, iyzico) ve checkout süreçlerinde geçerli olan sabit kargo ücreti ve ücretsiz kargo eşiğini belirler.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Sabit Kargo Ücreti (₺)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={shippingConfig.shippingFee}
+                    onChange={(e) => setShippingConfig({ ...shippingConfig, shippingFee: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                  />
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">0 girilirse kargo koşulsuz ücretsiz olur.</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Ücretsiz Kargo Sepet Tutarı (₺)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={shippingConfig.freeShippingThreshold}
+                    onChange={(e) => setShippingConfig({ ...shippingConfig, freeShippingThreshold: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                  />
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">Sepet toplamı bu tutara ulaşınca kargo 0 ₺ olur.</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Tahmini Teslimat Süresi
+                  </label>
+                  <input
+                    type="text"
+                    value={shippingConfig.deliveryTime}
+                    onChange={(e) => setShippingConfig({ ...shippingConfig, deliveryTime: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
+                    placeholder="1-3 İş Günü"
+                  />
+                  <span className="text-[10px] text-gray-400 mt-0.5 block">Müşteriye gösterilen tahmini süre.</span>
                 </div>
               </div>
             </div>

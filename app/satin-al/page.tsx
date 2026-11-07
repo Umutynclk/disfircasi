@@ -338,6 +338,37 @@ function CheckoutContent() {
   const [activeModal, setActiveModal] = useState<'sozlesme' | 'onbilgi' | 'kvkk' | null>(null)
   const [legalConfig, setLegalConfig] = useState<LegalDocumentsConfig>(DEFAULT_LEGAL_CONFIG)
 
+  // Legal Agreements Scroll & Reading Verification
+  const [agreementRead, setAgreementRead] = useState(false)
+  const [kvkkRead, setKvkkRead] = useState(false)
+  const [modalScrolledToBottom, setModalScrolledToBottom] = useState(false)
+  const modalScrollRef = useRef<HTMLDivElement>(null)
+
+  // Reset scroll check when modal opens
+  useEffect(() => {
+    if (activeModal) {
+      setModalScrolledToBottom(false)
+      const timer = setTimeout(() => {
+        if (modalScrollRef.current) {
+          const { scrollHeight, clientHeight } = modalScrollRef.current
+          if (scrollHeight <= clientHeight + 30) {
+            setModalScrolledToBottom(true)
+          }
+        }
+      }, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [activeModal])
+
+  const handleModalScroll = () => {
+    if (modalScrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = modalScrollRef.current
+      if (scrollTop + clientHeight >= scrollHeight - 35) {
+        setModalScrolledToBottom(true)
+      }
+    }
+  }
+
   const [submitting, setSubmitting] = useState(false)
   const [orderComplete, setOrderComplete] = useState(false)
   const [orderVerifying, setOrderVerifying] = useState(false)
@@ -2025,59 +2056,95 @@ function CheckoutContent() {
 
               {/* Step 3: Mandatory Legal Agreements Checkboxes */}
               <div className="pt-4 border-t border-slate-100 space-y-3">
-                <label className="flex items-start gap-3 cursor-pointer group select-none">
-                  <input
-                    type="checkbox"
-                    checked={agreementAccepted}
-                    onChange={(e) => setAgreementAccepted(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300 focus:ring-sky-500 cursor-pointer"
-                  />
-                  <span className="text-xs text-slate-600 leading-normal">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); setActiveModal('onbilgi') }}
-                      className="text-sky-600 font-bold hover:underline"
-                    >
-                      Ön Bilgilendirme Koşulları
-                    </button>
-                    &apos;nı ve{' '}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); setActiveModal('sozlesme') }}
-                      className="text-sky-600 font-bold hover:underline"
-                    >
-                      Mesafeli Satış Sözleşmesi
-                    </button>
-                    &apos;ni okudum, kabul ediyorum. <span className="text-rose-500">*</span>
-                  </span>
-                </label>
+                <div className="space-y-1">
+                  <label className="flex items-start gap-3 cursor-pointer group select-none">
+                    <input
+                      type="checkbox"
+                      checked={agreementAccepted}
+                      disabled={!agreementRead}
+                      onChange={(e) => {
+                        if (!agreementRead) {
+                          setActiveModal('onbilgi')
+                          return
+                        }
+                        setAgreementAccepted(e.target.checked)
+                      }}
+                      className={`mt-0.5 w-4 h-4 rounded border-slate-300 focus:ring-sky-500 ${
+                        !agreementRead
+                          ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+                          : 'text-sky-600 cursor-pointer'
+                      }`}
+                    />
+                    <span className="text-xs text-slate-600 leading-normal">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setActiveModal('onbilgi') }}
+                        className="text-sky-600 font-bold hover:underline"
+                      >
+                        Ön Bilgilendirme Koşulları
+                      </button>
+                      &apos;nı ve{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setActiveModal('sozlesme') }}
+                        className="text-sky-600 font-bold hover:underline"
+                      >
+                        Mesafeli Satış Sözleşmesi
+                      </button>
+                      &apos;ni okudum, kabul ediyorum. <span className="text-rose-500">*</span>
+                    </span>
+                  </label>
+                  {!agreementRead && (
+                    <p className="text-[10px] text-amber-600 font-semibold pl-7">
+                      ℹ️ Kutucuğu işaretleyebilmek için lütfen önce Ön Bilgilendirme Formu&apos;nu açıp sonuna kadar okuyunuz.
+                    </p>
+                  )}
+                </div>
 
-                <label className="flex items-start gap-3 cursor-pointer group select-none">
-                  <input
-                    type="checkbox"
-                    checked={kvkkAccepted}
-                    onChange={(e) => setKvkkAccepted(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300 focus:ring-sky-500 cursor-pointer"
-                  />
-                  <span className="text-xs text-slate-600 leading-normal">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); setActiveModal('kvkk') }}
-                      className="text-sky-600 font-bold hover:underline"
-                    >
-                      KVKK Aydınlatma Metni
-                    </button>
-                    &apos;ni ve{' '}
-                    <Link
-                      href={getLocalizedPath('/gizlilik-ve-guvenlik')}
-                      target="_blank"
-                      className="text-sky-600 font-bold hover:underline"
-                    >
-                      Gizlilik & Güvenlik Politikası
-                    </Link>
-                    &apos;nı okudum, onaylıyorum. <span className="text-rose-500">*</span>
-                  </span>
-                </label>
+                <div className="space-y-1">
+                  <label className="flex items-start gap-3 cursor-pointer group select-none">
+                    <input
+                      type="checkbox"
+                      checked={kvkkAccepted}
+                      disabled={!kvkkRead}
+                      onChange={(e) => {
+                        if (!kvkkRead) {
+                          setActiveModal('kvkk')
+                          return
+                        }
+                        setKvkkAccepted(e.target.checked)
+                      }}
+                      className={`mt-0.5 w-4 h-4 rounded border-slate-300 focus:ring-sky-500 ${
+                        !kvkkRead
+                          ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+                          : 'text-sky-600 cursor-pointer'
+                      }`}
+                    />
+                    <span className="text-xs text-slate-600 leading-normal">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setActiveModal('kvkk') }}
+                        className="text-sky-600 font-bold hover:underline"
+                      >
+                        KVKK Aydınlatma Metni
+                      </button>
+                      &apos;ni ve{' '}
+                      <Link
+                        href={getLocalizedPath('/gizlilik-ve-guvenlik')}
+                        target="_blank"
+                        className="text-sky-600 font-bold hover:underline"
+                      >
+                        Gizlilik & Güvenlik Politikası
+                      </Link>
+                      &apos;nı okudum, onaylıyorum. <span className="text-rose-500">*</span>
+                    </span>
+                  </label>
+                  {!kvkkRead && (
+                    <p className="text-[10px] text-amber-600 font-semibold pl-7">
+                      ℹ️ Kutucuğu işaretleyebilmek için lütfen önce KVKK Aydınlatma Metni&apos;ni açıp sonuna kadar okuyunuz.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Submit CTA */}
@@ -2349,7 +2416,11 @@ function CheckoutContent() {
                 </button>
               </div>
 
-              <div className="p-4 sm:p-6 overflow-y-auto text-xs text-slate-600 space-y-4 leading-relaxed">
+              <div
+                ref={modalScrollRef}
+                onScroll={handleModalScroll}
+                className="p-4 sm:p-6 overflow-y-auto text-xs text-slate-600 space-y-4 leading-relaxed"
+              >
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-0.5">
                   <p className="font-bold text-slate-800">SATICI: {legalConfig.company.title}</p>
                   <p>Adres: {legalConfig.company.address}</p>
@@ -2375,16 +2446,35 @@ function CheckoutContent() {
                 )}
               </div>
 
-              <div className="p-4 border-t border-slate-100 flex justify-end">
+              <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <span className="text-[11px] font-medium text-slate-500">
+                  {!modalScrolledToBottom ? (
+                    <span className="text-amber-600 font-semibold flex items-center gap-1">
+                      <span>⬇️</span>
+                      <span>TAMAM butonunun aktif olması için metnin sonuna kadar kaydırınız.</span>
+                    </span>
+                  ) : (
+                    <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                      <span>✅</span>
+                      <span>Metin sonuna ulaşıldı. TAMAM butonuna basarak pencereyi kapatabilirsiniz.</span>
+                    </span>
+                  )}
+                </span>
                 <button
+                  type="button"
+                  disabled={!modalScrolledToBottom}
                   onClick={() => {
-                    if (activeModal === 'sozlesme' || activeModal === 'onbilgi') setAgreementAccepted(true)
-                    if (activeModal === 'kvkk') setKvkkAccepted(true)
+                    if (activeModal === 'sozlesme' || activeModal === 'onbilgi') setAgreementRead(true)
+                    if (activeModal === 'kvkk') setKvkkRead(true)
                     setActiveModal(null)
                   }}
-                  className="px-6 py-2.5 bg-sky-600 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-sky-700 transition-colors"
+                  className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex-shrink-0 ${
+                    !modalScrolledToBottom
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 active:scale-95'
+                  }`}
                 >
-                  Okudum, Onaylıyorum
+                  TAMAM
                 </button>
               </div>
             </motion.div>

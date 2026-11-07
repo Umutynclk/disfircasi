@@ -16,6 +16,7 @@ export default function CartPage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [shippingFee, setShippingFee] = useState(0)
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState(0)
 
   useEffect(() => {
     const loadCart = () => {
@@ -37,7 +38,8 @@ export default function CartPage() {
         const shippingDoc = await getDoc(doc(db, 'siteContent', 'shipping'))
         if (shippingDoc.exists()) {
           const data = shippingDoc.data()
-          setShippingFee(data.shippingFee || 0)
+          setShippingFee(Number(data.shippingFee || 0))
+          setFreeShippingThreshold(Number(data.freeShippingThreshold || 0))
         }
       } catch (error) {
         console.error('Kargo ücreti yükleme hatası:', error)
@@ -63,7 +65,8 @@ export default function CartPage() {
   }
 
   const subtotal = getCartTotal()
-  const shipping = shippingFee
+  const isFreeShipping = (freeShippingThreshold > 0 && subtotal >= freeShippingThreshold) || shippingFee === 0
+  const shipping = isFreeShipping ? 0 : shippingFee
   const total = subtotal + shipping
 
   if (loading) {
@@ -220,6 +223,11 @@ export default function CartPage() {
                     {shipping === 0 ? 'Ücretsiz Kargo' : `${shipping.toLocaleString('tr-TR')} ₺`}
                   </span>
                 </div>
+                {freeShippingThreshold > 0 && !isFreeShipping && (
+                  <p className="text-[11px] text-brand-blue font-medium bg-brand-softBlue/70 p-2 rounded-xl">
+                    🎉 Sepetinize <strong>{(freeShippingThreshold - subtotal).toLocaleString('tr-TR')} ₺</strong> daha ürün ekleyin, kargonuz <strong>ücretsiz</strong> olsun!
+                  </p>
+                )}
                 <div className="pt-4 border-t border-slate-100 flex justify-between items-baseline">
                   <span className="font-bold text-slate-900 text-base">Toplam</span>
                   <span className="text-2xl font-black text-brand-blue">{total.toLocaleString('tr-TR')} ₺</span>

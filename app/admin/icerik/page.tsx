@@ -2322,14 +2322,21 @@ export default function ContentStudioPage() {
               <h2 className="text-xl font-bold text-gray-900">Kargo & Teslimat</h2>
               <button type="button" onClick={() => handleSaveSection('shipping', shipping)} className="px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold">Kaydet</button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">Sabit Kargo Ücreti (₺)</label>
-                <input type="number" value={shipping.shippingFee} onChange={(e) => setShipping({ ...shipping, shippingFee: parseFloat(e.target.value) || 0 })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+                <input type="number" min="0" step="0.01" value={shipping.shippingFee} onChange={(e) => setShipping({ ...shipping, shippingFee: parseFloat(e.target.value) || 0 })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+                <span className="text-[10px] text-gray-400 mt-0.5 block">0 girilirse her durumda ücretsiz</span>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Ücretsiz Kargo Sepet Tutarı (₺)</label>
+                <input type="number" min="0" step="1" value={shipping.freeShippingThreshold} onChange={(e) => setShipping({ ...shipping, freeShippingThreshold: parseFloat(e.target.value) || 0 })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+                <span className="text-[10px] text-gray-400 mt-0.5 block">Bu tutar ve üzeri siparişlerde kargo ücretsiz</span>
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">Teslimat Süresi</label>
                 <input type="text" value={shipping.deliveryTime} onChange={(e) => setShipping({ ...shipping, deliveryTime: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl text-sm" />
+                <span className="text-[10px] text-gray-400 mt-0.5 block">Örn: 1-3 İş Günü</span>
               </div>
             </div>
           </div>

@@ -194,18 +194,18 @@ export default function Navbar() {
                 <img
                   src={currentLogo}
                   alt={siteName}
-                  className="h-16 sm:h-20 md:h-24 w-auto max-w-[280px] object-contain transition-transform group-hover:scale-[1.02]"
+                  className="h-10 sm:h-16 md:h-20 w-auto max-w-[150px] sm:max-w-[220px] md:max-w-[280px] object-contain transition-transform group-hover:scale-[1.02]"
                 />
               ) : (
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white font-black text-3xl shadow-sm">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-10 h-10 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-sky-600 via-blue-600 to-emerald-500 flex items-center justify-center text-white font-black text-xl sm:text-3xl shadow-sm">
                     G
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 leading-none">
+                    <span className="text-lg sm:text-2xl md:text-3xl font-black tracking-tight text-slate-900 leading-none">
                       {siteName}
                     </span>
-                    <span className="text-[11px] tracking-widest text-slate-400 font-bold uppercase mt-1">
+                    <span className="text-[9px] sm:text-[11px] tracking-widest text-slate-400 font-bold uppercase mt-0.5 sm:mt-1">
                       DENTAL CARE
                     </span>
                   </div>
@@ -224,10 +224,10 @@ export default function Navbar() {
             </div>
 
             {/* RIGHT: Actions (Currency Dropdown, Language Dropdown, Search, Cart, User, Mobile Toggle) */}
-            <div className="flex items-center space-x-2 sm:space-x-3.5 flex-shrink-0">
+            <div className="flex items-center space-x-1.5 sm:space-x-3.5 flex-shrink-0">
 
-              {/* Currency Selector Dropdown (TCMB Gösterge Kuru) */}
-              <div className="relative" ref={currencyMenuRef}>
+              {/* Currency Selector Dropdown (TCMB Gösterge Kuru) - Desktop/Tablet */}
+              <div className="relative hidden sm:block" ref={currencyMenuRef}>
                 <button
                   onClick={() => setCurrencyDropdownOpen(!currencyDropdownOpen)}
                   className="px-3.5 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-xs sm:text-sm font-extrabold text-slate-800 flex items-center gap-1.5 transition-all border border-slate-200/80 shadow-2xs group"
@@ -297,8 +297,8 @@ export default function Navbar() {
                 </AnimatePresence>
               </div>
 
-              {/* Language Selector Dropdown */}
-              <div className="relative" ref={langMenuRef}>
+              {/* Language Selector Dropdown - Desktop/Tablet */}
+              <div className="relative hidden sm:block" ref={langMenuRef}>
                 <button
                   onClick={() => setLangDropdownOpen(!langDropdownOpen)}
                   className="px-3.5 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-xs sm:text-sm font-extrabold text-slate-800 flex items-center gap-1.5 transition-all border border-slate-200/80 shadow-2xs"
@@ -346,7 +346,7 @@ export default function Navbar() {
               {/* Search Button */}
               <button
                 onClick={() => setSearchModalOpen(true)}
-                className="p-3 rounded-full bg-slate-100 hover:bg-sky-50 hover:text-sky-600 transition-all text-slate-700 flex items-center justify-center shadow-2xs"
+                className="p-2.5 sm:p-3 rounded-full bg-slate-100 hover:bg-sky-50 hover:text-sky-600 transition-all text-slate-700 flex items-center justify-center shadow-2xs"
                 aria-label="Ürün Ara"
               >
                 <FiSearch className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -355,7 +355,7 @@ export default function Navbar() {
               {/* Cart Trigger */}
               <button
                 onClick={handleOpenCart}
-                className="relative p-3 rounded-full bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 transition-all text-slate-700 flex items-center justify-center group shadow-2xs"
+                className="relative p-2.5 sm:p-3 rounded-full bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 transition-all text-slate-700 flex items-center justify-center group shadow-2xs"
                 aria-label="Sepeti Aç"
               >
                 <FiShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform" />
@@ -372,7 +372,8 @@ export default function Navbar() {
                   <div className="relative">
                     <button
                       onClick={() => setUserMenuOpen(!userMenuOpen)}
-                      className="p-2 sm:px-4 sm:py-2.5 rounded-full bg-slate-100 hover:bg-slate-200/80 transition-all flex items-center gap-2 text-slate-800 shadow-2xs"
+                      className="p-2.5 sm:px-4 sm:py-2.5 rounded-full bg-slate-100 hover:bg-slate-200/80 transition-all flex items-center gap-2 text-slate-800 shadow-2xs"
+                      aria-label="Hesabım"
                     >
                       <FiUser className="w-4 h-4 text-sky-600" />
                       <span className="text-xs sm:text-sm font-bold hidden lg:block max-w-[110px] truncate">
@@ -417,7 +418,8 @@ export default function Navbar() {
                 ) : (
                   <Link
                     href={getLocalizedPath('/giris')}
-                    className="p-2 sm:px-4 sm:py-2.5 rounded-full bg-slate-100 hover:bg-sky-50 hover:text-sky-600 transition-all flex items-center gap-1.5 text-slate-800 text-xs sm:text-sm font-bold shadow-2xs"
+                    className="p-2.5 sm:px-4 sm:py-2.5 rounded-full bg-slate-100 hover:bg-sky-50 hover:text-sky-600 transition-all flex items-center gap-1.5 text-slate-800 text-xs sm:text-sm font-bold shadow-2xs"
+                    aria-label="Giriş Yap"
                   >
                     <FiUser className="w-4 h-4 text-sky-600" />
                     <span className="hidden sm:inline">{t.nav.login}</span>
@@ -428,7 +430,7 @@ export default function Navbar() {
               {/* Mobile Menu Toggle */}
               <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="md:hidden p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-800 shadow-2xs"
+                className="md:hidden p-2.5 sm:p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-800 shadow-2xs"
                 aria-label="Menüyü Aç"
               >
                 {isOpen ? <FiX className="w-5 h-5" /> : <FiMenu className="w-5 h-5" />}
@@ -643,6 +645,18 @@ export default function Navbar() {
             >
               <div className="px-4 py-5 space-y-1 pb-safe">
 
+                {/* Mobile Search Bar Trigger */}
+                <button
+                  onClick={() => {
+                    setIsOpen(false)
+                    setSearchModalOpen(true)
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-slate-100 hover:bg-sky-50 text-slate-500 hover:text-sky-600 font-semibold text-xs transition-colors"
+                >
+                  <FiSearch className="w-4 h-4 text-slate-400" />
+                  <span>Ürün, kategori veya barkod ara...</span>
+                </button>
+
                 {/* User info strip */}
                 {user ? (
                   <div className="flex items-center gap-3 p-3 mb-3 rounded-2xl bg-sky-50 border border-sky-100">
@@ -735,6 +749,58 @@ export default function Navbar() {
                     </span>
                   )}
                 </button>
+
+                {/* Mobile Currency & Language Quick Switcher */}
+                <div className="grid grid-cols-2 gap-2 pt-3 pb-1">
+                  {/* Currency Picker */}
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                    <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1">
+                      <span>💱</span>
+                      <span>Para Birimi</span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {(['TRY', 'USD', 'EUR', 'GBP'] as const).map((curr) => (
+                        <button
+                          key={curr}
+                          type="button"
+                          onClick={() => setCurrency(curr)}
+                          className={`py-1 px-1.5 rounded-lg text-xs font-black transition-colors ${
+                            currency === curr
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                          }`}
+                        >
+                          {curr}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Language Picker */}
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                    <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1">
+                      <span>🌐</span>
+                      <span>Dil Seçimi</span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {languages.map((l) => (
+                        <button
+                          key={l.code}
+                          type="button"
+                          onClick={() => setLocale(l.code)}
+                          className={`py-1 px-1.5 rounded-lg text-xs font-black flex items-center justify-center gap-1 transition-colors ${
+                            locale === l.code
+                              ? 'bg-sky-600 text-white shadow-xs'
+                              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                          }`}
+                        >
+                          <span className="text-sm">{l.flag}</span>
+                          <span className="uppercase text-[10px]">{l.code}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
 
                 {/* Logout if logged in */}
                 {user && (

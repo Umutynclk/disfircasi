@@ -1,8 +1,9 @@
 import { MetadataRoute } from 'next'
+import { getAdminFirestore } from '@/lib/firebase/admin'
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://sonrakam.com'
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date().toISOString()
 
   const staticPages: MetadataRoute.Sitemap = [
@@ -74,5 +75,24 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ]
 
-  return staticPages
+  try {
+    const db = getAdminFirestore()
+    const snapshot = await db.collection('products').get()
+    const productPages: MetadataRoute.Sitemap = snapshot.docs
+      .filter((doc) => doc.exists && doc.data()?.inStock !== false)
+      .map((doc) => {
+        const data = doc.data()
+        return {
+          url: `${BASE_URL}/urunler/${doc.id}`,
+          lastModified: data?.updatedAt || now,
+          changeFrequency: 'weekly' as const,
+          priority: 0.8,
+        }
+      })
+
+    return [...staticPages, ...productPages]
+  } catch (error) {
+    console.warn('Sitemap dynamic products fetch warning (using static pages fallback):', error)
+    return staticPages
+  }
 }

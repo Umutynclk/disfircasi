@@ -206,9 +206,10 @@ export default function Footer() {
 
         {/* Legal & Payment Trust Badges (Iyzico Audit Standard) */}
         <div suppressHydrationWarning className="pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-500 border-b border-slate-900 pb-6">
-          <div suppressHydrationWarning className="flex items-center gap-2">
-            <span className="font-bold text-white tracking-widest uppercase text-xs">GÜLÜMSE</span>
-            <span suppressHydrationWarning>© 2026 {legalConfig.company?.title || 'Gülümse Dental Tic. Ltd. Şti.'} Tüm Hakları Saklıdır.</span>
+          <div suppressHydrationWarning className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left">
+            <span suppressHydrationWarning className="text-slate-400 font-normal">
+              GÜLÜMSE© 2026 Kalıport Alüminyum Plastik Kalıp İmalat San. Tic. Ltd. Şti. Tüm Hakları Saklıdır.
+            </span>
           </div>
 
           {/* Payment Trust Badges */}
@@ -241,6 +242,13 @@ export default function Footer() {
           <Link href={getLocalizedPath('/gizlilik-ve-guvenlik')} className="hover:text-sky-400 transition-colors">Gizlilik ve Güvenlik</Link>
           <Link href={getLocalizedPath('/kvkk')} className="hover:text-sky-400 transition-colors">KVKK Aydınlatma Metni</Link>
           <Link href={getLocalizedPath('/kargo')} className="hover:text-sky-400 transition-colors">Teslimat & Kargo</Link>
+        </div>
+
+        {/* Developer Signature */}
+        <div className="pt-6 mt-6 border-t border-slate-900/60 flex items-center justify-center text-center">
+          <p className="text-[11px] tracking-wider text-slate-400 font-medium">
+            Developed by Umutynclk
+          </p>
         </div>
       </div>
     </footer>

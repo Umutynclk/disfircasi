@@ -33,25 +33,27 @@ export default function SessionTracker() {
     events.forEach((ev) => window.addEventListener(ev, handleUserInteraction, { passive: true }))
 
     // 2. Her 15 saniyede bir oturum geçerliliğini kontrol et
-    // admin@gmail.com hesabı için 15 dakikalık hareketsizlik sınırı uygulanmaz
+    // KRİTİK GÜVENLİK AYRIMI: 15 dakikalık katı hareketsizlik kuralı YALNIZCA /admin rotalarındaki yöneticiler için geçerlidir.
+    // Normal e-ticaret müşterileri sepet, satın alma veya gezinme sırasında 15 dakikada atılmaz.
+    // Müşterinin oturumu Firebase Authentication yerel kalıcılığı (browserLocalPersistence) ile korunur.
     const interval = setInterval(async () => {
       if (!isLoggedInRef.current) return
 
+      const isAdminRoute = pathname?.startsWith('/admin')
+      if (!isAdminRoute) {
+        // Normal müşteri için 15 dakikalık zorla çıkış YAPILMAZ.
+        return
+      }
+
       const validity = checkSessionValidity(userEmailRef.current)
       if (!validity.valid) {
-        const isAdminRoute = pathname?.startsWith('/admin')
         clearSessionData()
 
         try {
-          if (isAdminRoute) {
-            await logoutAdmin()
-            router.push('/admin/login?error=session_expired&reason=' + (validity.reason || 'inactive'))
-          } else {
-            await logoutUser()
-            router.push('/giris?error=session_expired&reason=' + (validity.reason || 'inactive'))
-          }
+          await logoutAdmin()
+          router.push('/admin/login?error=session_expired&reason=' + (validity.reason || 'inactive'))
         } catch (err) {
-          console.warn('Otomatik oturum sonlandırma uyarısı:', err)
+          console.warn('Otomatik admin oturum sonlandırma uyarısı:', err)
         }
       }
     }, 15000)

@@ -242,8 +242,27 @@ export default function ProductDetailPage() {
     )
   }
 
+  const productJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: prodName,
+    description: prodDesc,
+    image: currentImages.length > 0 ? currentImages : [product.image].filter(Boolean),
+    offers: {
+      '@type': 'Offer',
+      price: currentPrice,
+      priceCurrency: 'TRY',
+      availability: product.inStock !== false ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      url: `https://sonrakam.com/urunler/${product.id}`,
+    },
+  }
+
   return (
     <div className="pt-32 pb-24 bg-slate-50 min-h-screen">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }}
+      />
       <div className="container-custom section-padding">
         {/* Back Link */}
         <Link

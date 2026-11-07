@@ -64,8 +64,42 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const organizationJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'GÜLÜMSE Dental Care',
+    legalName: 'Kalıport Alüminyum Plastik Kalıp İmalat San. Tic. Ltd. Şti.',
+    url: BASE_URL,
+    logo: `${BASE_URL}/logo.png`,
+    sameAs: [
+      'https://instagram.com/gulumse',
+    ],
+  }
+
+  const websiteJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'GÜLÜMSE',
+    url: BASE_URL,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${BASE_URL}/urunler?q={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
+  }
+
   return (
     <html lang="tr" suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+      </head>
       <body className={inter.className} suppressHydrationWarning>
         <LocaleProvider>
           <SessionTracker />

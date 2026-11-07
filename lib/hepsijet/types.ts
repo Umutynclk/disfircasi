@@ -346,6 +346,10 @@ export interface OrderShippingData {
   cancelLockTimestamp?: number
   alreadyDeletedOnHepsiJet?: boolean
   syncStatus?: string
+  notificationSent?: boolean
+  notifiedAt?: string
+  notificationError?: string
+  notificationChannel?: 'email' | 'sms' | 'audit_log'
 }
 
 export interface HepsiJetTokenResponse {

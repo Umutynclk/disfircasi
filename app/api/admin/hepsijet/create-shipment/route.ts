@@ -4,6 +4,7 @@ import { verifyAdminRequest } from '@/lib/hepsijet/serverAuth'
 import { getHepsiJetSettingsServer } from '@/lib/hepsijet/settings'
 import { sendDeliveryOrderEnhanced } from '@/lib/hepsijet/client'
 import { queueShippingLabelJob } from '@/lib/printing/queue'
+import { sendShippingTrackingNotification } from '@/lib/hepsijet/notifications'
 import { HepsiJetDeliveryOrderPayload, OrderShippingData } from '@/lib/hepsijet/types'
 
 interface CreateShipmentRequestBody {
@@ -495,6 +496,17 @@ export async function POST(req: NextRequest) {
       }
     } catch (queueErr: any) {
       console.warn('Create shipment print queue warning:', queueErr?.message)
+    }
+
+    // 15. MÜŞTERİYE KARGO TAKİP BİLDİRİMİ (IDEMPOTENT)
+    try {
+      await sendShippingTrackingNotification(orderRef.id, {
+        ...orderData,
+        id: orderRef.id,
+        shipping: shippingRecord,
+      })
+    } catch (notifErr: any) {
+      console.warn('Create shipment tracking notification warning (non-blocking):', notifErr?.message)
     }
 
     return NextResponse.json({

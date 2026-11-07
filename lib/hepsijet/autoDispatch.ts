@@ -2,6 +2,7 @@ import { getAdminFirestore } from '@/lib/firebase/admin'
 import { getHepsiJetSettingsServer } from './settings'
 import { sendDeliveryOrderEnhanced, isAmbiguousHepsiJetError } from './client'
 import { queueShippingLabelJob } from '@/lib/printing/queue'
+import { sendShippingTrackingNotification } from './notifications'
 import {
   HepsiJetDeliveryOrderPayload,
   OrderShippingData,
@@ -527,6 +528,17 @@ export async function processOrderAutoDispatchAndPrint(
       }
     } catch (qErr: any) {
       console.warn('AutoDispatch instant print queue warning:', qErr?.message)
+    }
+
+    // 11. MÜŞTERİYE KARGO TAKİP BİLDİRİMİ (IDEMPOTENT)
+    try {
+      await sendShippingTrackingNotification(orderRef.id, {
+        ...orderData,
+        id: orderRef.id,
+        shipping: shippingRecord,
+      })
+    } catch (notifErr: any) {
+      console.warn('AutoDispatch shipping notification warning (non-blocking):', notifErr?.message)
     }
 
     return {

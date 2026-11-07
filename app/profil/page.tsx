@@ -33,6 +33,8 @@ import {
   FiHome,
   FiBriefcase,
   FiAlertCircle,
+  FiTruck,
+  FiExternalLink,
 } from 'react-icons/fi'
 import { doc, updateDoc } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
@@ -60,10 +62,18 @@ const PROFILE_TRANSLATIONS = {
     noOrdersDesc: 'Ağız sağlığınızı dönüştürecek 360° sonic ve kullan-at diş fırçalarımızı keşfedin.',
     exploreBtn: 'Ürünleri İncele',
     orderNo: 'Sipariş No:',
-    statusDelivered: 'Teslim Edildi',
-    statusShipped: 'Kargoya Verildi',
+    statusReceived: 'Sipariş Alındı',
     statusProcessing: 'Hazırlanıyor',
+    statusLabelCreated: 'Kargo Etiketi Oluşturuldu',
+    statusShipped: 'Kargoya Verildi',
+    statusInTransit: 'Yolda',
+    statusOutForDelivery: 'Dağıtımda',
+    statusDelivered: 'Teslim Edildi',
     statusCancelled: 'İptal Edildi',
+    trackingTitle: 'Kargo Bilgisi',
+    trackingCarrier: 'Kargo Firması:',
+    trackingNo: 'Takip No:',
+    trackingBtn: 'Kargomu Takip Et',
     cancelOrderBtn: 'Siparişi İptal Et',
     cancellingOrder: 'İptal Ediliyor...',
     confirmCancelOrder: 'Bu siparişi iptal etmek istediğinize emin misiniz?\n\nVarsa ödemeniz banka ve PayTR onayının ardından 1-3 iş günü içinde kartınıza iade edilecektir.',
@@ -94,10 +104,18 @@ const PROFILE_TRANSLATIONS = {
     noOrdersDesc: 'Explore our 360° sonic and travel-ready dental care collections.',
     exploreBtn: 'Explore Products',
     orderNo: 'Order #:',
-    statusDelivered: 'Delivered',
-    statusShipped: 'Shipped',
+    statusReceived: 'Order Received',
     statusProcessing: 'Processing',
+    statusLabelCreated: 'Shipping Label Created',
+    statusShipped: 'Shipped',
+    statusInTransit: 'In Transit',
+    statusOutForDelivery: 'Out for Delivery',
+    statusDelivered: 'Delivered',
     statusCancelled: 'Cancelled',
+    trackingTitle: 'Shipping Info',
+    trackingCarrier: 'Carrier:',
+    trackingNo: 'Tracking #:',
+    trackingBtn: 'Track My Package',
     cancelOrderBtn: 'Cancel Order',
     cancellingOrder: 'Cancelling...',
     confirmCancelOrder: 'Are you sure you want to cancel this order?\n\nAny payment will be refunded within 1-3 business days.',
@@ -620,14 +638,33 @@ export default function ProfilePage() {
                       order.shipping?.status !== 'delivered' &&
                       order.shipping?.status !== 'cancel_pending'
 
-                    const statusText =
-                      isCancelled
-                        ? loc.statusCancelled
-                        : order.status === 'completed'
-                        ? loc.statusDelivered
-                        : order.status === 'shipped'
-                        ? loc.statusShipped
-                        : loc.statusProcessing
+                    // Kargo takip bilgisi (HepsiJET)
+                    const shipping = (order as any).shipping
+                    const hasRealBarcode =
+                      shipping?.barcode &&
+                      !/NUMUNE|SAMPLE|TEST/i.test(shipping.barcode) &&
+                      !shipping.barcode.startsWith('SIM-')
+                    const trackingBarcode = hasRealBarcode ? shipping.barcode : (shipping?.trackingNumber || null)
+                    const trackingUrl = trackingBarcode
+                      ? (shipping?.trackingUrl || `https://hepsijet.com/gonderi-takip/${encodeURIComponent(trackingBarcode)}`)
+                      : null
+
+                    // Durum metni — HepsiJET barkod varlığı ve sipariş status eşleşmesine göre
+                    const getStatusInfo = (): { text: string; color: string; bg: string; border: string } => {
+                      if (isCancelled) return { text: loc.statusCancelled, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' }
+                      if (order.status === 'completed') return { text: loc.statusDelivered, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' }
+                      // HepsiJET gerçek barkodu varsa kargo oluşturulmuş demektir
+                      if (hasRealBarcode) {
+                        // Shipping status kontrolü — sadece doğrulanmış durumları kullan
+                        if (shipping?.status === 'in_transit') return { text: (loc as any).statusInTransit || 'Yolda', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
+                        if (shipping?.status === 'created' || order.status === 'shipped') return { text: loc.statusShipped, color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
+                        return { text: (loc as any).statusLabelCreated || 'Kargo Etiketi Oluşturuldu', color: 'text-sky-600', bg: 'bg-sky-50/70', border: 'border-sky-200' }
+                      }
+                      if (order.status === 'paid' || order.status === 'processing') return { text: loc.statusProcessing, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
+                      return { text: (loc as any).statusReceived || 'Sipariş Alındı', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
+                    }
+
+                    const statusInfo = getStatusInfo()
 
                     return (
                       <div
@@ -651,17 +688,9 @@ export default function ProfilePage() {
 
                           <div className="flex items-center gap-2">
                             <span
-                              className={`px-3 py-1 rounded-full text-[11px] font-bold ${
-                                isCancelled
-                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                  : order.status === 'completed'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : order.status === 'shipped'
-                                  ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
-                              }`}
+                              className={`px-3 py-1 rounded-full text-[11px] font-bold border ${statusInfo.bg} ${statusInfo.color} ${statusInfo.border}`}
                             >
-                              {statusText}
+                              {statusInfo.text}
                             </span>
                           </div>
                         </div>
@@ -689,6 +718,36 @@ export default function ProfilePage() {
                             </div>
                           ))}
                         </div>
+
+                        {/* HepsiJET Kargo Takip Bilgisi — yalnızca gerçek barkod varsa göster */}
+                        {trackingBarcode && trackingUrl && (
+                          <div className="pt-4 border-t border-sky-100 bg-sky-50/50 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-sky-800">
+                              <FiTruck className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                              <span>{(loc as any).trackingTitle || 'Kargo Bilgisi'}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-600 space-y-1 ml-5">
+                              <div>
+                                <span className="text-slate-400 font-medium">{(loc as any).trackingCarrier || 'Kargo Firması:'} </span>
+                                <span className="font-bold text-slate-800">HepsiJET</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium">{(loc as any).trackingNo || 'Takip No:'} </span>
+                                <span className="font-mono font-bold text-slate-800">{trackingBarcode}</span>
+                              </div>
+                            </div>
+                            <a
+                              href={trackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-5 inline-flex items-center gap-1.5 mt-1 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm shadow-sky-600/20"
+                            >
+                              <FiTruck className="w-3.5 h-3.5" />
+                              <span>{(loc as any).trackingBtn || 'Kargomu Takip Et'}</span>
+                              <FiExternalLink className="w-3 h-3 opacity-70" />
+                            </a>
+                          </div>
+                        )}
 
                         {/* Order Bottom Line */}
                         <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
