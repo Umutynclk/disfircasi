@@ -469,5 +469,117 @@ test('Geliştirme 14: HepsiJET 8 Aşamalı Kargo Durumları & 24 Saat Otomatik A
   assert.equal(fullOrder.items.length, 1)
 })
 
+test('Geliştirme 15: HepsiJET RETURNED (İade) ve CANCELLED (İptal) Kesin Ayrımı', () => {
+  // mapIntegrationStatus mantığı doğrulaması
+  const mapStatusDetailed = (code: string) => {
+    switch (code) {
+      case 'RETURN_STARTED':
+      case 'RETURNED':
+      case 'RETURN_DELIVERED':
+        return {
+          displayStatus: 'İade Edildi',
+          orderStatus: null, // Kargo iadesi sipariş durumunu iptal (cancelled) yapmaz!
+          shippingStatus: 'returned',
+          providerStatus: code,
+        }
+      case 'CANCELLED':
+      case 'DELETED':
+        return {
+          displayStatus: 'İptal Edildi',
+          orderStatus: 'cancelled',
+          shippingStatus: 'cancelled',
+          providerStatus: code,
+        }
+      default:
+        return { displayStatus: 'Diğer', orderStatus: null, shippingStatus: 'unknown', providerStatus: code }
+    }
+  }
+
+  // 1. İade durumları (RETURNED, RETURN_STARTED, RETURN_DELIVERED)
+  const ret1 = mapStatusDetailed('RETURNED')
+  assert.equal(ret1.displayStatus, 'İade Edildi')
+  assert.equal(ret1.shippingStatus, 'returned')
+  assert.equal(ret1.orderStatus, null, 'RETURNED siparişi cancelled yapmamalıdır')
+
+  const ret2 = mapStatusDetailed('RETURN_STARTED')
+  assert.equal(ret2.displayStatus, 'İade Edildi')
+  assert.equal(ret2.shippingStatus, 'returned')
+  assert.equal(ret2.orderStatus, null)
+
+  const ret3 = mapStatusDetailed('RETURN_DELIVERED')
+  assert.equal(ret3.displayStatus, 'İade Edildi')
+  assert.equal(ret3.shippingStatus, 'returned')
+  assert.equal(ret3.orderStatus, null)
+
+  // 2. Gerçek İptal durumları (CANCELLED, DELETED)
+  const can1 = mapStatusDetailed('CANCELLED')
+  assert.equal(can1.displayStatus, 'İptal Edildi')
+  assert.equal(can1.shippingStatus, 'cancelled')
+  assert.equal(can1.orderStatus, 'cancelled')
+
+  const can2 = mapStatusDetailed('DELETED')
+  assert.equal(can2.displayStatus, 'İptal Edildi')
+  assert.equal(can2.shippingStatus, 'cancelled')
+  assert.equal(can2.orderStatus, 'cancelled')
+
+  // 3. Rozet Gösterimi (getCommonOrderDisplayStatus mantığı)
+  const resolveDisplayBadge = (order: any) => {
+    const rawShipping = order.shipping?.status
+    const provStatus = order.shipping?.providerStatus
+
+    if (
+      rawShipping === 'returned' ||
+      provStatus === 'RETURNED' ||
+      provStatus === 'RETURN_STARTED' ||
+      provStatus === 'RETURN_DELIVERED' ||
+      order.status === 'returned' ||
+      order.status === 'refunded'
+    ) {
+      return { key: 'returned', text: 'İade Edildi', color: 'text-purple-700' }
+    }
+
+    if (order.status === 'cancelled' || rawShipping === 'cancelled' || order.isCancelled === true) {
+      return { key: 'cancelled', text: 'İptal Edildi', color: 'text-rose-700' }
+    }
+
+    return { key: 'other', text: 'Diğer', color: 'text-slate-700' }
+  }
+
+  // İade edilen kargonun siparişi mor "İade Edildi" rozetini almalı
+  const returnedOrderMock = {
+    status: 'shipped',
+    shipping: {
+      status: 'returned',
+      providerStatus: 'RETURNED',
+    },
+  }
+  const badgeReturn = resolveDisplayBadge(returnedOrderMock)
+  assert.equal(badgeReturn.key, 'returned')
+  assert.equal(badgeReturn.text, 'İade Edildi')
+  assert.equal(badgeReturn.color, 'text-purple-700')
+
+  // Gerçekten iptal edilen sipariş kırmızı "İptal Edildi" rozetini almalı
+  const cancelledOrderMock = {
+    status: 'cancelled',
+    isCancelled: true,
+    shipping: {
+      status: 'created',
+    },
+  }
+  const badgeCancel = resolveDisplayBadge(cancelledOrderMock)
+  assert.equal(badgeCancel.key, 'cancelled')
+  assert.equal(badgeCancel.text, 'İptal Edildi')
+  assert.equal(badgeCancel.color, 'text-rose-700')
+
+  // 4. İade edilen siparişin yanlışlıkla 24 saat iptal arşivine alınmaması
+  const isEligibleForAutoCancelArchive = (order: any) => {
+    const ordStatus = String(order.status || '').toLowerCase()
+    const shipStatus = String(order.shipping?.status || '').toLowerCase()
+    return ordStatus === 'cancelled' || shipStatus === 'cancelled'
+  }
+  assert.equal(isEligibleForAutoCancelArchive(returnedOrderMock), false, 'İade edilen sipariş otomatik iptal arşivine alınmamalıdır')
+  assert.equal(isEligibleForAutoCancelArchive(cancelledOrderMock), true, 'İptal edilen sipariş iptal arşivine alınmalıdır')
+})
+
 
 

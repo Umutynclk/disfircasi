@@ -45,7 +45,25 @@ export function getCommonOrderDisplayStatus(order: any): OrderStatusBadgeInfo {
   const rawShippingStatus = String(shipping.status || '').toLowerCase()
   const providerStatus = String(shipping.providerStatus || '').toUpperCase()
 
-  // 1. İptal Durumu (Kesin öncelik: iptal edilmiş sipariş asla kargo durumuyla ezilemez)
+  // 1. İade Durumu (Kargo taşıyıcısının iade süreci veya iade kaydı)
+  if (
+    rawShippingStatus === 'returned' ||
+    providerStatus === 'RETURNED' ||
+    providerStatus === 'RETURN_STARTED' ||
+    providerStatus === 'RETURN_DELIVERED' ||
+    rawOrderStatus === 'returned' ||
+    rawOrderStatus === 'refunded'
+  ) {
+    return {
+      key: 'returned',
+      text: 'İade Edildi',
+      color: 'text-purple-700',
+      bg: 'bg-purple-50',
+      border: 'border-purple-200',
+    }
+  }
+
+  // 2. Gerçek Sipariş İptal Durumu (Müşteri veya Admin tarafından sipariş iptal edilmişse)
   if (
     rawOrderStatus === 'cancelled' ||
     rawShippingStatus === 'cancelled' ||
@@ -57,23 +75,6 @@ export function getCommonOrderDisplayStatus(order: any): OrderStatusBadgeInfo {
       color: 'text-rose-700',
       bg: 'bg-rose-50',
       border: 'border-rose-200',
-    }
-  }
-
-  // 2. İade Durumu
-  if (
-    rawOrderStatus === 'returned' ||
-    rawOrderStatus === 'refunded' ||
-    rawShippingStatus === 'returned' ||
-    providerStatus === 'RETURNED' ||
-    providerStatus === 'RETURN_DELIVERED'
-  ) {
-    return {
-      key: 'returned',
-      text: 'İade Edildi',
-      color: 'text-purple-700',
-      bg: 'bg-purple-50',
-      border: 'border-purple-200',
     }
   }
 

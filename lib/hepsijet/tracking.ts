@@ -100,7 +100,7 @@ export function mapIntegrationStatus(integrationStatus: string | undefined | nul
     case 'RETURN_DELIVERED':
       return {
         displayStatus: 'İade Edildi',
-        orderStatus: 'cancelled',
+        orderStatus: null, // Kargo iadesi ana siparişi iptal ('cancelled') yapmaz, mevcut durum korunur.
         shippingStatus: 'returned',
         providerStatus: code,
       }
