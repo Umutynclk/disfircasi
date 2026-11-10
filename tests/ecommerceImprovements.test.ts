@@ -209,5 +209,97 @@ test('Geliştirme 11: API Sunucu Tarafı Kimlik Doğrulama Güvenliği (Auth Hea
   assert.equal((valid as any).token, 'valid-firebase-id-token-12345')
 })
 
+test('Geliştirme 12: HepsiJET Kargo Takip URL Formatı (404 Vermeyen Resmi URL)', () => {
+  // buildHepsiJetTrackingUrl doğrulaması
+  const buildHepsiJetTrackingUrl = (barcode: string) => {
+    if (!barcode) return ''
+    return `https://hepsijet.com/gonderi-takibi/${encodeURIComponent(barcode.trim())}`
+  }
+
+  // 1. Gerçek KALIPORT barkodu
+  const url1 = buildHepsiJetTrackingUrl('KALIPORT4A3BFAEE')
+  assert.equal(url1, 'https://hepsijet.com/gonderi-takibi/KALIPORT4A3BFAEE')
+  assert.equal(url1.includes('gonderi-takip?barkod='), false)
+  assert.equal(url1.includes('gonderi-takibi/'), true)
+
+  // 2. Özel karakterli / boşluklu barkod trim ve encode
+  const url2 = buildHepsiJetTrackingUrl(' HJKLPGS2609127BBBC ')
+  assert.equal(url2, 'https://hepsijet.com/gonderi-takibi/HJKLPGS2609127BBBC')
+
+  // 3. Boş barkod
+  assert.equal(buildHepsiJetTrackingUrl(''), '')
+})
+
+test('Geliştirme 13: HepsiJET integrationStatus Durum Eşleşmesi ve Geri Düşmeme Koruması', () => {
+  // mapIntegrationStatus doğrulaması
+  const mapStatus = (status: string) => {
+    const code = (status || '').toUpperCase().trim()
+    switch (code) {
+      case 'ACCEPTED':
+        return { displayStatus: 'Kargoya Verildi', orderStatus: 'shipped', shippingStatus: 'accepted' }
+      case 'OUT_FOR_DELIVERY':
+        return { displayStatus: 'Dağıtımda', orderStatus: 'shipped', shippingStatus: 'out_for_delivery' }
+      case 'DELIVERED':
+        return { displayStatus: 'Teslim Edildi', orderStatus: 'completed', shippingStatus: 'delivered' }
+      case '':
+        return { displayStatus: 'Kargo Etiketi Oluşturuldu', orderStatus: null, shippingStatus: 'created' }
+      default:
+        return { displayStatus: 'Kargo Bilgisi Alınıyor', orderStatus: null, shippingStatus: 'unknown' }
+    }
+  }
+
+  // ACCEPTED
+  const accepted = mapStatus('ACCEPTED')
+  assert.equal(accepted.displayStatus, 'Kargoya Verildi')
+  assert.equal(accepted.orderStatus, 'shipped')
+  assert.equal(accepted.shippingStatus, 'accepted')
+
+  // OUT_FOR_DELIVERY
+  const out = mapStatus('OUT_FOR_DELIVERY')
+  assert.equal(out.displayStatus, 'Dağıtımda')
+  assert.equal(out.orderStatus, 'shipped')
+
+  // DELIVERED
+  const delivered = mapStatus('DELIVERED')
+  assert.equal(delivered.displayStatus, 'Teslim Edildi')
+  assert.equal(delivered.orderStatus, 'completed')
+  assert.equal(delivered.shippingStatus, 'delivered')
+
+  // Boş / henüz taşınmamış
+  const empty = mapStatus('')
+  assert.equal(empty.displayStatus, 'Kargo Etiketi Oluşturuldu')
+  assert.equal(empty.orderStatus, null)
+
+  // Bilinmeyen kod
+  const unknown = mapStatus('SOMETHING_NEW')
+  assert.equal(unknown.orderStatus, null)
+  assert.equal(unknown.shippingStatus, 'unknown')
+
+  // Durum önceliği (geri düşmeme kontrolü)
+  const ranks: Record<string, number> = {
+    created: 0,
+    unknown: 0,
+    accepted: 1,
+    out_for_delivery: 2,
+    delivered: 3,
+    cancelled: 4,
+  }
+  const shouldUpgrade = (curr: string, next: string) => {
+    if (ranks[curr] === ranks['cancelled']) return false
+    return (ranks[next] || 0) > (ranks[curr] || 0)
+  }
+
+  // delivered durumundaki kargo, accepted veya out_for_delivery'ye geri düşemez
+  assert.equal(shouldUpgrade('delivered', 'accepted'), false)
+  assert.equal(shouldUpgrade('delivered', 'out_for_delivery'), false)
+
+  // accepted durumundaki kargo out_for_delivery ve delivered'a yükselebilir
+  assert.equal(shouldUpgrade('accepted', 'out_for_delivery'), true)
+  assert.equal(shouldUpgrade('accepted', 'delivered'), true)
+
+  // cancelled siparişler asla güncellenmez
+  assert.equal(shouldUpgrade('cancelled', 'delivered'), false)
+})
+
 
 

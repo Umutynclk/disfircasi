@@ -40,6 +40,7 @@ import { doc, updateDoc } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import Link from 'next/link'
 import { useLocale } from '@/context/LocaleContext'
+import { buildHepsiJetTrackingUrl } from '@/lib/hepsijet/tracking-url'
 
 interface UserData {
   name?: string
@@ -646,19 +647,29 @@ export default function ProfilePage() {
                       !shipping.barcode.startsWith('SIM-')
                     const trackingBarcode = hasRealBarcode ? shipping.barcode : (shipping?.trackingNumber || null)
                     const trackingUrl = trackingBarcode
-                      ? (shipping?.trackingUrl || `https://hepsijet.com/gonderi-takip/${encodeURIComponent(trackingBarcode)}`)
+                      ? (shipping?.trackingUrl && shipping.trackingUrl.includes('gonderi-takibi')
+                          ? shipping.trackingUrl
+                          : buildHepsiJetTrackingUrl(trackingBarcode))
                       : null
 
-                    // Durum metni — HepsiJET barkod varlığı ve sipariş status eşleşmesine göre
+                    // Durum metni — HepsiJET canlı API durumu ve sipariş status eşleşmesine göre
                     const getStatusInfo = (): { text: string; color: string; bg: string; border: string } => {
                       if (isCancelled) return { text: loc.statusCancelled, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' }
-                      if (order.status === 'completed') return { text: loc.statusDelivered, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' }
-                      // HepsiJET gerçek barkodu varsa kargo oluşturulmuş demektir
+                      if (order.status === 'completed' || order.status === 'delivered' || shipping?.status === 'delivered' || shipping?.providerStatus === 'DELIVERED') {
+                        return { text: loc.statusDelivered || 'Teslim Edildi', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' }
+                      }
+                      if (shipping?.status === 'out_for_delivery' || shipping?.providerStatus === 'OUT_FOR_DELIVERY') {
+                        return { text: 'Dağıtımda', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' }
+                      }
+                      if (shipping?.status === 'accepted' || shipping?.providerStatus === 'ACCEPTED' || order.status === 'shipped') {
+                        return { text: loc.statusShipped || 'Kargoya Verildi', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
+                      }
+                      if (shipping?.status === 'in_transit') {
+                        return { text: (loc as any).statusInTransit || 'Yolda', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
+                      }
+                      // HepsiJET gerçek barkodu varsa kargo etiketi oluşturulmuştur
                       if (hasRealBarcode) {
-                        // Shipping status kontrolü — sadece doğrulanmış durumları kullan
-                        if (shipping?.status === 'in_transit') return { text: (loc as any).statusInTransit || 'Yolda', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
-                        if (shipping?.status === 'created' || order.status === 'shipped') return { text: loc.statusShipped, color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
-                        return { text: (loc as any).statusLabelCreated || 'Kargo Etiketi Oluşturuldu', color: 'text-sky-600', bg: 'bg-sky-50/70', border: 'border-sky-200' }
+                        return { text: shipping?.displayStatus || (loc as any).statusLabelCreated || 'Kargo Etiketi Oluşturuldu', color: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200' }
                       }
                       if (order.status === 'paid' || order.status === 'processing') return { text: loc.statusProcessing, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
                       return { text: (loc as any).statusReceived || 'Sipariş Alındı', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }

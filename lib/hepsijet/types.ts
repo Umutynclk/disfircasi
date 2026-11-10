@@ -314,10 +314,18 @@ export interface OrderShippingData {
     | 'simulated'
     | 'ready_for_dispatch'
     | 'pending_review'
+    | 'accepted'
+    | 'out_for_delivery'
+    | 'delivered'
   barcode?: string
   trackingNumber?: string
   customerDeliveryNo?: string
   trackingUrl?: string
+  providerStatus?: string
+  displayStatus?: string
+  lastTrackingAt?: string
+  lastTrackingAttemptAt?: string
+  trackingUrlUpdatedAt?: string
   desi?: number
   weight?: number
   packageCount?: number

@@ -7,6 +7,7 @@ import {
   HepsiJetDeliveryOrderPayload,
   OrderShippingData,
 } from './types'
+import { buildHepsiJetTrackingUrl } from './tracking'
 
 export interface AutoDispatchResult {
   success: boolean
@@ -484,7 +485,7 @@ export async function processOrderAutoDispatchAndPrint(
       apiResponse.data?.barcode ||
       barcode
 
-    const trackingUrl = `https://hepsijet.com/gonderi-takip/${encodeURIComponent(trackingNumber)}`
+    const trackingUrl = buildHepsiJetTrackingUrl(trackingNumber)
 
     const shippingRecord: OrderShippingData = {
       carrier: 'hepsijet',

@@ -1,5 +1,6 @@
 import { getAdminFirestore } from '@/lib/firebase/admin'
 import { OrderShippingData } from './types'
+import { buildHepsiJetTrackingUrl } from './tracking'
 
 export interface TrackingNotificationResult {
   success: boolean
@@ -39,12 +40,12 @@ export async function sendShippingTrackingNotification(
         success: true,
         alreadySent: true,
         trackingNumber,
-        trackingUrl: shipping.trackingUrl || `https://hepsijet.com/gonderi-takip/${encodeURIComponent(trackingNumber)}`,
+        trackingUrl: shipping.trackingUrl || buildHepsiJetTrackingUrl(trackingNumber),
         message: 'Bildirim daha önce gönderilmiş, mükerrer gönderim engellendi.',
       }
     }
 
-    const trackingUrl = `https://hepsijet.com/gonderi-takip/${encodeURIComponent(trackingNumber)}`
+    const trackingUrl = buildHepsiJetTrackingUrl(trackingNumber)
     const orderNumber = orderData.orderNumber || orderId
     const customerName =
       orderData.shippingAddress?.fullName ||

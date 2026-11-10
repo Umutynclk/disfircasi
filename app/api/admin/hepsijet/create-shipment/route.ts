@@ -6,6 +6,7 @@ import { sendDeliveryOrderEnhanced } from '@/lib/hepsijet/client'
 import { queueShippingLabelJob } from '@/lib/printing/queue'
 import { sendShippingTrackingNotification } from '@/lib/hepsijet/notifications'
 import { HepsiJetDeliveryOrderPayload, OrderShippingData } from '@/lib/hepsijet/types'
+import { buildHepsiJetTrackingUrl } from '@/lib/hepsijet/tracking'
 
 interface CreateShipmentRequestBody {
   orderId: string
@@ -450,7 +451,7 @@ export async function POST(req: NextRequest) {
       barcode
 
     // 13. BAŞARILI GERÇEK GÖNDERİ KAYDI
-    const trackingUrl = `https://hepsijet.com/gonderi-takip?barkod=${barcode}`
+    const trackingUrl = buildHepsiJetTrackingUrl(barcode)
 
     const shippingRecord: OrderShippingData = {
       carrier: 'hepsijet',

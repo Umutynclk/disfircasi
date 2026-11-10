@@ -2375,19 +2375,28 @@ export default function OrdersPage() {
                   )}
 
                   {/* Kargo Detayları (Barkod, Takip No vb.) */}
-                  {selectedOrder.shipping?.status === 'created' && (
+                  {selectedOrder.shipping?.barcode && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/90 rounded-2xl p-4 border border-orange-200 text-xs shadow-xs">
                       <div>
                         <span className="text-gray-400 block text-[10px] uppercase font-bold">Barkod / Gönderi No</span>
                         <span className="font-mono font-black text-orange-600 text-sm">
                           {selectedOrder.shipping.barcode || selectedOrder.shipping.customerDeliveryNo || '-'}
                         </span>
+                        {selectedOrder.shipping.displayStatus && (
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                            {selectedOrder.shipping.displayStatus}
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className="text-gray-400 block text-[10px] uppercase font-bold">Kargo Takibi</span>
-                        {selectedOrder.shipping.trackingUrl ? (
+                        {(selectedOrder.shipping.trackingUrl || selectedOrder.shipping.barcode) ? (
                           <a
-                            href={selectedOrder.shipping.trackingUrl}
+                            href={
+                              selectedOrder.shipping.trackingUrl && selectedOrder.shipping.trackingUrl.includes('gonderi-takibi')
+                                ? selectedOrder.shipping.trackingUrl
+                                : `https://hepsijet.com/gonderi-takibi/${encodeURIComponent(selectedOrder.shipping.barcode || selectedOrder.shipping.trackingNumber || '')}`
+                            }
                             target="_blank"
                             rel="noopener noreferrer"
                             className="font-bold text-sky-600 hover:text-sky-700 underline truncate block mt-0.5"
