@@ -317,6 +317,7 @@ export interface OrderShippingData {
     | 'accepted'
     | 'out_for_delivery'
     | 'delivered'
+    | 'returned'
   barcode?: string
   trackingNumber?: string
   customerDeliveryNo?: string
@@ -326,6 +327,12 @@ export interface OrderShippingData {
   lastTrackingAt?: string
   lastTrackingAttemptAt?: string
   trackingUrlUpdatedAt?: string
+  deliveredAt?: string
+  terminalStatusAt?: string
+  archiveAt?: string
+  archiveReason?: 'delivered' | 'cancelled' | 'manual'
+  archived?: boolean
+  archivedAt?: string
   desi?: number
   weight?: number
   packageCount?: number

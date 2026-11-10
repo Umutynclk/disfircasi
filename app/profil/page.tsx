@@ -41,6 +41,7 @@ import { getFirestoreDB } from '@/firebase/config'
 import Link from 'next/link'
 import { useLocale } from '@/context/LocaleContext'
 import { buildHepsiJetTrackingUrl } from '@/lib/hepsijet/tracking-url'
+import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
 
 interface UserData {
   name?: string
@@ -652,30 +653,28 @@ export default function ProfilePage() {
                           : buildHepsiJetTrackingUrl(trackingBarcode))
                       : null
 
-                    // Durum metni — HepsiJET canlı API durumu ve sipariş status eşleşmesine göre
-                    const getStatusInfo = (): { text: string; color: string; bg: string; border: string } => {
-                      if (isCancelled) return { text: loc.statusCancelled, color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' }
-                      if (order.status === 'completed' || order.status === 'delivered' || shipping?.status === 'delivered' || shipping?.providerStatus === 'DELIVERED') {
-                        return { text: loc.statusDelivered || 'Teslim Edildi', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' }
-                      }
-                      if (shipping?.status === 'out_for_delivery' || shipping?.providerStatus === 'OUT_FOR_DELIVERY') {
-                        return { text: 'Dağıtımda', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' }
-                      }
-                      if (shipping?.status === 'accepted' || shipping?.providerStatus === 'ACCEPTED' || order.status === 'shipped') {
-                        return { text: loc.statusShipped || 'Kargoya Verildi', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
-                      }
-                      if (shipping?.status === 'in_transit') {
-                        return { text: (loc as any).statusInTransit || 'Yolda', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' }
-                      }
-                      // HepsiJET gerçek barkodu varsa kargo etiketi oluşturulmuştur
-                      if (hasRealBarcode) {
-                        return { text: shipping?.displayStatus || (loc as any).statusLabelCreated || 'Kargo Etiketi Oluşturuldu', color: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200' }
-                      }
-                      if (order.status === 'paid' || order.status === 'processing') return { text: loc.statusProcessing, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
-                      return { text: (loc as any).statusReceived || 'Sipariş Alındı', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
+                    // Ortak Durum Metni ve Rozeti — Admin paneliyle birebir aynı mantık
+                    const commonStatus = getCommonOrderDisplayStatus({
+                      ...order,
+                      isCancelled,
+                    })
+
+                    // Çok dilli lokalizasyon metni desteği
+                    const getLocalizedText = (key: string, defaultText: string) => {
+                      if (key === 'cancelled') return loc.statusCancelled || defaultText
+                      if (key === 'delivered') return loc.statusDelivered || defaultText
+                      if (key === 'accepted') return loc.statusShipped || defaultText
+                      if (key === 'processing') return loc.statusProcessing || defaultText
+                      if (key === 'in_transit') return (loc as any).statusInTransit || defaultText
+                      if (key === 'label_created') return (loc as any).statusLabelCreated || defaultText
+                      if (key === 'pending') return (loc as any).statusReceived || defaultText
+                      return defaultText
                     }
 
-                    const statusInfo = getStatusInfo()
+                    const statusInfo = {
+                      ...commonStatus,
+                      text: getLocalizedText(commonStatus.key, commonStatus.text),
+                    }
 
                     return (
                       <div

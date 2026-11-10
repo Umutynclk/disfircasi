@@ -24,6 +24,7 @@ import {
   getArchiveBlockers,
   ARCHIVE_BLOCK_LABELS,
 } from '@/lib/utils/orderLifecycle'
+import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
 
 type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled'
 
@@ -154,6 +155,54 @@ export default function OrdersPage() {
   const [cancelModalOrder, setCancelModalOrder] = useState<Order | null>(null)
   const [cancelReasonInput, setCancelReasonInput] = useState<string>('')
   const [cancelError, setCancelError] = useState<string | null>(null)
+
+  // HepsiJET Kargo Durumu Senkronizasyon State'i
+  const [isSyncingTracking, setIsSyncingTracking] = useState<boolean>(false)
+  const [lastTrackingSyncAt, setLastTrackingSyncAt] = useState<string | null>(null)
+
+  const handleSyncAllTracking = async (showNotice = true) => {
+    setIsSyncingTracking(true)
+    try {
+      const user = await getCurrentUser()
+      if (!user) return
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/hepsijet/sync-tracking', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLastTrackingSyncAt(new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+        if (showNotice && data.success) {
+          alert(`✅ Kargo Takip Senkronizasyonu:\n${data.message || 'Siparişler başarıyla güncellendi.'}`)
+        }
+      }
+    } catch (err) {
+      console.warn('Otomatik kargo takibi senkronizasyon hatası:', err)
+    } finally {
+      setIsSyncingTracking(false)
+    }
+  }
+
+  // Sayfa açıldığında ve her 5 dakikada bir otomatik arka plan kargo senkronizasyonu
+  useEffect(() => {
+    const initialTimer = setTimeout(() => {
+      handleSyncAllTracking(false)
+    }, 2000)
+
+    const interval = setInterval(() => {
+      handleSyncAllTracking(false)
+    }, 5 * 60 * 1000)
+
+    return () => {
+      clearTimeout(initialTimer)
+      clearInterval(interval)
+    }
+  }, [])
 
   // Seçili sipariş değiştiğinde paket bilgilerini senkronize et
   useEffect(() => {
@@ -1526,7 +1575,7 @@ export default function OrdersPage() {
           }`}
         >
           <FiArchive className="w-4 h-4" />
-          <span>15 Günlük Arşiv</span>
+          <span>Arşiv (24s / 15 Gün)</span>
           <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-bold">
             {archivedOrders.length}
           </span>
@@ -1546,6 +1595,24 @@ export default function OrdersPage() {
             {trashOrders.length}
           </span>
         </button>
+
+        <div className="ml-auto flex items-center gap-2 w-full sm:w-auto justify-end">
+          {lastTrackingSyncAt && (
+            <span className="text-[11px] text-slate-400 hidden sm:inline">
+              Son kargo güncellemesi: {lastTrackingSyncAt}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => handleSyncAllTracking(true)}
+            disabled={isSyncingTracking}
+            className="flex items-center gap-1.5 px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            title="HepsiJET API'sinden tüm aktif kargoların son hareket ve teslimat durumunu çeker"
+          >
+            <FiRefreshCw className={`w-3.5 h-3.5 ${isSyncingTracking ? 'animate-spin text-sky-600' : ''}`} />
+            <span>{isSyncingTracking ? 'Sorgulanıyor...' : 'Kargoları Senkronize Et'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -1626,6 +1693,7 @@ export default function OrdersPage() {
         ) : (
           <div className="divide-y divide-gray-100">
             {filtered.map((order) => {
+              const commonStatus = getCommonOrderDisplayStatus(order)
               const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
               const StatusIcon = cfg.icon
               const isExpanded = expandedOrder === order.id
@@ -1733,9 +1801,9 @@ export default function OrdersPage() {
 
                     {/* Status Badge */}
                     <div className="min-w-[130px] flex flex-col items-start gap-1">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${commonStatus.bg} ${commonStatus.color} ${commonStatus.border}`}>
                         <StatusIcon className="w-3.5 h-3.5" />
-                        {cfg.label}
+                        {commonStatus.text}
                       </span>
                       {order.refundStatus === 'refunded' && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">

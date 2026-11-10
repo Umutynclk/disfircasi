@@ -13,8 +13,14 @@ export interface LifecycleOrderLike {
   status?: string
   paymentStatus?: string
   createdAt?: string
+  updatedAt?: string
+  completedAt?: string
+  cancelledAt?: string
   isTrash?: boolean
   isArchived?: boolean
+  archived?: boolean
+  archiveAt?: string
+  terminalStatusAt?: string
   shipping?: {
     status?: string
     barcode?: string
@@ -104,17 +110,43 @@ export function isOlderThan15Days(order: LifecycleOrderLike, now: number = Date.
 
 /**
  * Sipariş arşivde mi gösterilmeli?
- * - Elle arşivlenmişse (isArchived) her zaman evet.
+ * - Elle veya otomatik arşivlenmişse (isArchived / archived) her zaman evet.
+ * - Teslim veya iptal üzerinden 24 saat geçmişse (archiveAt) evet.
  * - 15 gün geçmişse ve çözülmemiş operasyonel engel yoksa evet.
  */
 export function isInArchive(order: LifecycleOrderLike, now: number = Date.now()): boolean {
   if (order.isTrash) return false
-  if (order.isArchived === true) return true
+  if (order.isArchived === true || order.archived === true) return true
+
+  // 24 saat otomatik arşivleme kuralı (delivered & cancelled)
+  if (order.archiveAt) {
+    const archiveTime = new Date(order.archiveAt).getTime()
+    if (!isNaN(archiveTime) && now >= archiveTime) {
+      return true
+    }
+  } else {
+    // archiveAt henüz yazılmamışsa ama sipariş teslim edilmiş veya iptal edilmişse:
+    const ordStatus = String(order.status || '').toLowerCase()
+    const isDelivered = ordStatus === 'delivered' || ordStatus === 'completed' || order.shipping?.status === 'delivered'
+    const isCancelled = ordStatus === 'cancelled' || order.shipping?.status === 'cancelled'
+
+    if (isDelivered || isCancelled) {
+      const termDateStr = order.terminalStatusAt || order.completedAt || order.cancelledAt
+      if (termDateStr) {
+        const termTime = new Date(termDateStr).getTime()
+        if (!isNaN(termTime) && now >= termTime + TWENTY_FOUR_HOURS_MS) {
+          return true
+        }
+      }
+    }
+  }
+
+  // 15 gün aşmış ve çözülmüş eski siparişler için geriye dönük uyumluluk
   return isOlderThan15Days(order, now) && getArchiveBlockers(order).length === 0
 }
 
 /** 15 günü aşmış ama çözülmemiş olduğu için aktif listede tutulan sipariş. */
 export function isOverdueButBlocked(order: LifecycleOrderLike, now: number = Date.now()): boolean {
-  if (order.isTrash || order.isArchived === true) return false
+  if (order.isTrash || order.isArchived === true || order.archived === true) return false
   return isOlderThan15Days(order, now) && getArchiveBlockers(order).length > 0
 }

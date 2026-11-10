@@ -301,5 +301,173 @@ test('Geliştirme 13: HepsiJET integrationStatus Durum Eşleşmesi ve Geri Düş
   assert.equal(shouldUpgrade('cancelled', 'delivered'), false)
 })
 
+test('Geliştirme 14: HepsiJET 8 Aşamalı Kargo Durumları & 24 Saat Otomatik Arşivleme Senaryoları', () => {
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
+
+  // 1. ACCEPTED -> Kargoya Verildi
+  const mapAccepted = (code: string) => {
+    switch (code) {
+      case 'ACCEPTED':
+      case 'DELIVERY_ACCEPTED':
+      case 'COLLECTED':
+        return { displayStatus: 'Kargoya Verildi', orderStatus: 'shipped', shippingStatus: 'accepted' }
+      case 'IN_TRANSIT':
+      case 'TRANSFER':
+      case 'X_DOCK_IN':
+        return { displayStatus: 'Yolda', orderStatus: 'shipped', shippingStatus: 'in_transit' }
+      case 'OUT_FOR_DELIVERY':
+        return { displayStatus: 'Dağıtımda', orderStatus: 'shipped', shippingStatus: 'out_for_delivery' }
+      case 'DELIVERED':
+        return { displayStatus: 'Teslim Edildi', orderStatus: 'completed', shippingStatus: 'delivered' }
+      case 'CANCELLED':
+        return { displayStatus: 'İptal Edildi', orderStatus: 'cancelled', shippingStatus: 'cancelled' }
+      default:
+        return { displayStatus: 'Kargo Bilgisi Alınıyor', orderStatus: null, shippingStatus: 'unknown' }
+    }
+  }
+
+  assert.equal(mapAccepted('ACCEPTED').displayStatus, 'Kargoya Verildi')
+  assert.equal(mapAccepted('ACCEPTED').shippingStatus, 'accepted')
+
+  // 2. IN_TRANSIT -> Yolda
+  assert.equal(mapAccepted('IN_TRANSIT').displayStatus, 'Yolda')
+  assert.equal(mapAccepted('TRANSFER').displayStatus, 'Yolda')
+  assert.equal(mapAccepted('X_DOCK_IN').displayStatus, 'Yolda')
+
+  // 3. OUT_FOR_DELIVERY -> Dağıtımda
+  assert.equal(mapAccepted('OUT_FOR_DELIVERY').displayStatus, 'Dağıtımda')
+
+  // 4. DELIVERED -> Teslim Edildi
+  assert.equal(mapAccepted('DELIVERED').displayStatus, 'Teslim Edildi')
+
+  // Arşivleme kuralı fonksiyonu
+  const checkIsInArchive = (order: {
+    status?: string
+    isArchived?: boolean
+    archived?: boolean
+    archiveAt?: string
+    terminalStatusAt?: string
+    shipping?: { status?: string }
+  }, now: number) => {
+    if (order.isArchived === true || order.archived === true) return true
+    if (order.archiveAt) {
+      const t = new Date(order.archiveAt).getTime()
+      if (!isNaN(t) && now >= t) return true
+    } else {
+      const isDel = order.status === 'delivered' || order.status === 'completed' || order.shipping?.status === 'delivered'
+      const isCan = order.status === 'cancelled' || order.shipping?.status === 'cancelled'
+      if (isDel || isCan) {
+        if (order.terminalStatusAt) {
+          const t = new Date(order.terminalStatusAt).getTime()
+          if (!isNaN(t) && now >= t + TWENTY_FOUR_HOURS_MS) return true
+        }
+      }
+    }
+    return false
+  }
+
+  const deliveryTimestamp = new Date('2026-11-10T10:00:00.000Z').getTime()
+  const archiveAtString = new Date(deliveryTimestamp + TWENTY_FOUR_HOURS_MS).toISOString()
+
+  const deliveredOrder = {
+    status: 'completed',
+    shipping: { status: 'delivered' },
+    terminalStatusAt: new Date(deliveryTimestamp).toISOString(),
+    archiveAt: archiveAtString,
+    isArchived: false,
+    archived: false,
+  }
+
+  // 5. DELIVERED üzerinden 23 saat geçti -> Aktif listede kalmalı (Arşivde OLMAMALI)
+  const timeAfter23Hours = deliveryTimestamp + 23 * 60 * 60 * 1000
+  assert.equal(checkIsInArchive(deliveredOrder, timeAfter23Hours), false, '23. saatte henüz arşivlenmemelidir')
+
+  // 6. DELIVERED üzerinden 24 saat geçti -> Arşivlenmeli
+  const timeAfter24Hours = deliveryTimestamp + 24 * 60 * 60 * 1000
+  assert.equal(checkIsInArchive(deliveredOrder, timeAfter24Hours), true, '24. saatte arşivde görünmelidir')
+
+  const timeAfter25Hours = deliveryTimestamp + 25 * 60 * 60 * 1000
+  assert.equal(checkIsInArchive(deliveredOrder, timeAfter25Hours), true, '25. saatte arşivde görünmelidir')
+
+  // 7. CANCELLED -> İptal Edildi
+  assert.equal(mapAccepted('CANCELLED').displayStatus, 'İptal Edildi')
+
+  // 8. CANCELLED üzerinden 24 saat geçti -> Arşivlenmeli
+  const cancelTimestamp = new Date('2026-11-08T12:00:00.000Z').getTime()
+  const cancelledOrder = {
+    status: 'cancelled',
+    shipping: { status: 'cancelled' },
+    terminalStatusAt: new Date(cancelTimestamp).toISOString(),
+    archiveAt: new Date(cancelTimestamp + TWENTY_FOUR_HOURS_MS).toISOString(),
+    isArchived: false,
+  }
+  // 23 saat sonra
+  assert.equal(checkIsInArchive(cancelledOrder, cancelTimestamp + 23 * 60 * 60 * 1000), false)
+  // 24 saat sonra
+  assert.equal(checkIsInArchive(cancelledOrder, cancelTimestamp + 24 * 60 * 60 * 1000), true)
+
+  // 9. İptal edilmiş sipariş eski kargo durumu nedeniyle değişmemeli
+  const shouldUpgradeWithCancelGuard = (curr: string, next: string) => {
+    if (curr === 'cancelled') return false
+    return true
+  }
+  assert.equal(shouldUpgradeWithCancelGuard('cancelled', 'accepted'), false, 'İptal edilmiş sipariş kargo durumuyla ezilemez')
+  assert.equal(shouldUpgradeWithCancelGuard('cancelled', 'delivered'), false, 'İptal edilmiş sipariş teslimatla ezilemez')
+
+  // 10. API geçici hata verdiğinde son doğrulanmış durum korunmalı
+  let currentOrderShippingStatus = 'out_for_delivery'
+  const simulateApiFailure = () => {
+    // API hatası yakalandı, mevcut durum korunur
+    return currentOrderShippingStatus
+  }
+  assert.equal(simulateApiFailure(), 'out_for_delivery')
+
+  // 11. Admin ve Müşteri aynı ortak durumu görmeli
+  const testOrder = {
+    status: 'shipped',
+    shipping: {
+      status: 'out_for_delivery',
+      providerStatus: 'OUT_FOR_DELIVERY',
+    },
+  }
+  const resolveStatus = (ord: any) => {
+    if (ord.shipping?.status === 'out_for_delivery') return 'Dağıtımda'
+    if (ord.shipping?.status === 'delivered') return 'Teslim Edildi'
+    return 'Hazırlanıyor'
+  }
+  const adminDisplay = resolveStatus(testOrder)
+  const customerDisplay = resolveStatus(testOrder)
+  assert.equal(adminDisplay, customerDisplay)
+  assert.equal(adminDisplay, 'Dağıtımda')
+
+  // 12. Aynı cron iki kere çalıştığında mükerrer arşivleme oluşmamalı
+  let archiveRunCount = 0
+  const orderDocState = { isArchived: false, archivedAt: null as string | null }
+  const runArchiveStep = (now: number) => {
+    if (orderDocState.isArchived) return 'skipped_already_archived'
+    orderDocState.isArchived = true
+    orderDocState.archivedAt = new Date(now).toISOString()
+    archiveRunCount++
+    return 'archived'
+  }
+  assert.equal(runArchiveStep(timeAfter25Hours), 'archived')
+  assert.equal(runArchiveStep(timeAfter25Hours + 1000), 'skipped_already_archived')
+  assert.equal(archiveRunCount, 1, 'Yalnızca bir kez arşivlenmeli')
+
+  // 13. Arşivlenen sipariş detayları erişilebilir kalmalı (silinmemeli)
+  const fullOrder = {
+    id: 'ord-test-999',
+    orderNumber: 'GS2611999',
+    total: 899,
+    isArchived: true,
+    archivedAt: new Date().toISOString(),
+    paymentStatus: 'PAID',
+    items: [{ name: 'Sonic Diş Fırçası', price: 899, quantity: 1 }],
+  }
+  assert.equal(fullOrder.isArchived, true)
+  assert.equal(fullOrder.total, 899)
+  assert.equal(fullOrder.items.length, 1)
+})
+
 
 

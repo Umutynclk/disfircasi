@@ -1,0 +1,48 @@
+name: HepsiJET Kargo Takip ve Otomatik Arşivleme
+
+on:
+  schedule:
+    # Her 30 dakikada bir çalış (günde 48 kez)
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: hepsijet-tracking-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-tracking:
+    name: Kargo Takip ve Arşivleme Senkronizasyonu
+    runs-on: ubuntu-latest
+    steps:
+      - name: HepsiJET Takip ve Arşiv Endpoint'ini Çağır
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ENDPOINT_URL: 'https://sonrakam.com/api/cron/hepsijet-tracking-sync'
+        run: |
+          set -euo pipefail
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET tanımlı değil. İstek secretsiz iletiliyor..."
+          fi
+
+          echo "🚀 HepsiJET kargo takibi ve 24s arşivleme tetikleniyor..."
+
+          RESPONSE_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" -X POST "$ENDPOINT_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --max-time 60 || echo "999")
+
+          echo "HTTP Yanıt Kodu: $HTTP_STATUS"
+          cat "$RESPONSE_FILE"
+          echo ""
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::error::Kargo senkronizasyonu başarısız oldu (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+
+          echo "✅ Kargo takibi ve arşivleme başarıyla tamamlandı."
+

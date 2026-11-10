@@ -4,14 +4,7 @@ import { syncOrderTrackingFromHepsiJet } from '@/lib/hepsijet/tracking'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * GET /api/cron/hepsijet-tracking-sync
- *
- * Periyodik HepsiJET kargo takip senkronizasyonu.
- * Henüz teslim edilmemiş veya iptal edilmemiş, aktif HepsiJET barkodu olan
- * tüm siparişlerin durumunu sorgular ve Firestore'u günceller.
- */
-export async function GET(request: NextRequest) {
+async function handleTrackingSync(request: NextRequest) {
   try {
     // 1. Cron secret doğrulaması (güvenlik)
     const expectedSecret = process.env.CRON_SECRET
@@ -47,46 +40,38 @@ export async function GET(request: NextRequest) {
         return
       }
 
-      // Kargo zaten teslim edilmiş ve durumu da güncellenmiş mi?
-      if (['cancelled', 'completed', 'delivered'].includes(orderStatus) && shippingStatus === 'delivered') {
+      // Kargo zaten teslim edilmiş ve archiveAt yazılmış mı?
+      if (['cancelled', 'completed', 'delivered'].includes(orderStatus) && shippingStatus === 'delivered' && data.archiveAt) {
         return
       }
 
-      // İptal edilmiş siparişlere dokunma
-      if (orderStatus === 'cancelled' || shippingStatus === 'cancelled') {
+      // İptal edilmiş ve archiveAt yazılmış mı?
+      if ((orderStatus === 'cancelled' || shippingStatus === 'cancelled') && data.archiveAt) {
         return
       }
 
       activeOrderIds.push(doc.id)
     })
 
-    if (activeOrderIds.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'Senkronize edilecek aktif kargo bulunamadı.',
-        totalChecked: snapshot.size,
-        activeOrdersCount: 0,
-        results: [],
-      })
-    }
-
-    // 3. Çekirdek senkronizasyon fonksiyonunu çalıştır
+    // 3. Çekirdek senkronizasyon fonksiyonunu çalıştır (arşivleme adımı dahil)
     const results = await syncOrderTrackingFromHepsiJet(activeOrderIds)
 
     const updatedCount = results.filter((r) => r.updated).length
     const deliveredCount = results.filter((r) => r.newShippingStatus === 'delivered').length
+    const archivedCount = results.filter((r) => r.archived).length
 
     return NextResponse.json({
       success: true,
-      message: `${results.length} siparişten ${updatedCount} tanesi güncellendi (${deliveredCount} teslim edildi).`,
-      totalChecked: snapshot.size,
+      message: `${results.length} sipariş sorgulandı/işlendi. (${updatedCount} güncellendi, ${deliveredCount} teslim edildi, ${archivedCount} arşivlendi).`,
+      totalOrdersChecked: snapshot.size,
       activeOrdersCount: activeOrderIds.length,
       updatedCount,
       deliveredCount,
+      archivedCount,
       results,
     })
   } catch (error: any) {
-    console.error('HepsiJET cron takip hatası:', error)
+    console.error('HepsiJET cron takip ve arşivleme hatası:', error)
     return NextResponse.json(
       {
         success: false,
@@ -95,4 +80,12 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+export async function GET(request: NextRequest) {
+  return handleTrackingSync(request)
+}
+
+export async function POST(request: NextRequest) {
+  return handleTrackingSync(request)
 }
