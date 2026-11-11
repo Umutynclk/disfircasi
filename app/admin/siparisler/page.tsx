@@ -25,6 +25,7 @@ import {
   ARCHIVE_BLOCK_LABELS,
 } from '@/lib/utils/orderLifecycle'
 import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
+import { calculateOrderStats } from '@/lib/utils/orderStats'
 
 type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled'
 
@@ -1242,18 +1243,8 @@ export default function OrdersPage() {
   const readyForDispatchCount = currentTabOrders.filter((o) => o.shipping?.automationStatus === 'ready').length
   const pendingReviewCount = currentTabOrders.filter((o) => o.shipping?.automationStatus === 'pending_review').length
 
-  // Stats (calculated from active orders)
-  const stats = {
-    total: activeOrders.length,
-    pending: activeOrders.filter((o) => o.status === 'pending').length,
-    processing: activeOrders.filter((o) => o.status === 'processing').length,
-    shipped: activeOrders.filter((o) => o.status === 'shipped').length,
-    delivered: activeOrders.filter((o) => o.status === 'delivered').length,
-    cancelled: activeOrders.filter((o) => o.status === 'cancelled').length,
-    revenue: activeOrders
-      .filter((o) => o.status !== 'cancelled')
-      .reduce((sum, o) => sum + (o.total || 0), 0),
-  }
+  // Stats (ortak orderStats yardımcısı ile hesaplanır)
+  const stats = calculateOrderStats(orders, nowMs)
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-'
@@ -1406,7 +1397,7 @@ export default function OrdersPage() {
       </AnimatePresence>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-8">
         {[
           { label: 'Toplam Sipariş', value: stats.total, color: 'text-gray-900', bg: 'bg-white' },
           { label: 'Bekliyor', value: stats.pending, color: 'text-amber-700', bg: 'bg-amber-50' },
@@ -1414,11 +1405,12 @@ export default function OrdersPage() {
           { label: 'Kargoda', value: stats.shipped, color: 'text-violet-700', bg: 'bg-violet-50' },
           { label: 'Teslim Edildi', value: stats.delivered, color: 'text-emerald-700', bg: 'bg-emerald-50' },
           { label: 'İptal Edildi', value: stats.cancelled, color: 'text-red-700', bg: 'bg-red-50' },
-          { label: 'Toplam Gelir', value: formatPrice(stats.revenue), color: 'text-primary-700', bg: 'bg-primary-50', wide: true },
+          { label: 'İade Edildi', value: stats.returned, color: 'text-purple-700', bg: 'bg-purple-50' },
+          { label: 'Toplam Gelir', value: formatPrice(stats.revenue), color: 'text-primary-700', bg: 'bg-primary-50' },
         ].map((stat) => (
           <div
             key={stat.label}
-            className={`${stat.bg} border border-gray-200 rounded-xl p-4 ${(stat as any).wide ? 'col-span-2 md:col-span-2' : ''}`}
+            className={`${stat.bg} border border-gray-200 rounded-xl p-4`}
           >
             <p className="text-xs text-gray-500 mb-1">{stat.label}</p>
             <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>

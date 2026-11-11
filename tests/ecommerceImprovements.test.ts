@@ -1,5 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {
+  calculateOrderStats,
+  isOrderPaid,
+  isTodayInIstanbul,
+  isThisWeekInIstanbul,
+  isThisMonthInIstanbul,
+  getIstanbulDateString,
+} from '../lib/utils/orderStats'
+import { getCommonOrderDisplayStatus } from '../lib/hepsijet/status-display'
 
 test('Geliştirme 1: Oturum Yönetimi - Müşteri Rolü 15 Dakika Süre Aşımına Uğramamalı', () => {
   const customerUser = { uid: 'cust-123', email: 'musteri@gmail.com', role: 'user' }
@@ -580,6 +589,205 @@ test('Geliştirme 15: HepsiJET RETURNED (İade) ve CANCELLED (İptal) Kesin Ayr�
   assert.equal(isEligibleForAutoCancelArchive(returnedOrderMock), false, 'İade edilen sipariş otomatik iptal arşivine alınmamalıdır')
   assert.equal(isEligibleForAutoCancelArchive(cancelledOrderMock), true, 'İptal edilen sipariş iptal arşivine alınmalıdır')
 })
+
+test('Geliştirme 16: Admin Kontrol Paneli ve Siparişler Ekranı İstatistik ve Durum Senkronizasyonu', () => {
+  const fixedNow = new Date('2026-11-11T14:30:00+03:00').getTime()
+
+  // 1. Sentetik Mock Sipariş Kümesi
+  const mockOrders = [
+    // 1. Ödeme bekleyen aktif sipariş (ciroya girmez, pending artar)
+    {
+      id: 'ord-1-pending',
+      status: 'pending',
+      paymentStatus: 'PENDING',
+      total: 350,
+      createdAt: '2026-11-11T10:00:00+03:00',
+    },
+    // 2. Hazırlanan ödenmiş sipariş (ciroya girer, processing artar)
+    {
+      id: 'ord-2-processing',
+      status: 'processing',
+      paymentStatus: 'PAID',
+      total: 500,
+      createdAt: '2026-11-11T11:00:00+03:00',
+    },
+    // 3. Kargo barkodu oluşturulmuş aktif sipariş (ciroya girer, labelCreated & shipped artar)
+    {
+      id: 'ord-3-label',
+      status: 'processing',
+      paymentStatus: 'PAID',
+      total: 450,
+      createdAt: '2026-11-11T09:00:00+03:00',
+      shipping: {
+        barcode: 'HJ1234567890',
+        status: 'created',
+      },
+    },
+    // 4. HepsiJET tarafından teslim alınmış kargo (ACCEPTED -> accepted & shipped artar)
+    {
+      id: 'ord-4-accepted',
+      status: 'shipped',
+      paymentStatus: 'PAID',
+      total: 600,
+      createdAt: '2026-11-10T15:00:00+03:00',
+      shipping: {
+        barcode: 'HJ1234567891',
+        status: 'accepted',
+        providerStatus: 'ACCEPTED',
+      },
+    },
+    // 5. Transfer / yolda olan kargo (IN_TRANSIT -> inTransit & shipped artar)
+    {
+      id: 'ord-5-transit',
+      status: 'shipped',
+      paymentStatus: 'PAID',
+      total: 750,
+      createdAt: '2026-11-10T12:00:00+03:00',
+      shipping: {
+        barcode: 'HJ1234567892',
+        status: 'in_transit',
+        providerStatus: 'IN_TRANSIT',
+      },
+    },
+    // 6. Dağıtıma çıkmış kargo (OUT_FOR_DELIVERY -> outForDelivery & shipped artar)
+    {
+      id: 'ord-6-delivery',
+      status: 'shipped',
+      paymentStatus: 'PAID',
+      total: 800,
+      createdAt: '2026-11-09T10:00:00+03:00',
+      shipping: {
+        barcode: 'HJ1234567893',
+        status: 'out_for_delivery',
+        providerStatus: 'OUT_FOR_DELIVERY',
+      },
+    },
+    // 7. Teslim edilmiş aktif sipariş (henüz 24 saati dolmamış -> delivered artar)
+    {
+      id: 'ord-7-delivered-fresh',
+      status: 'completed',
+      paymentStatus: 'PAID',
+      total: 900,
+      createdAt: '2026-11-11T08:00:00+03:00',
+      completedAt: '2026-11-11T12:00:00+03:00',
+      archiveAt: '2026-11-12T12:00:00+03:00', // Gelecekte
+      shipping: {
+        barcode: 'HJ1234567894',
+        status: 'delivered',
+        providerStatus: 'DELIVERED',
+      },
+    },
+    // 8. İptal edilmiş aktif sipariş (henüz 24 saati dolmamış -> cancelled artar, ciroya girmez)
+    {
+      id: 'ord-8-cancelled-fresh',
+      status: 'cancelled',
+      isCancelled: true,
+      paymentStatus: 'PAID',
+      total: 400,
+      createdAt: '2026-11-11T13:00:00+03:00',
+      cancelledAt: '2026-11-11T13:30:00+03:00',
+      archiveAt: '2026-11-12T13:30:00+03:00', // Gelecekte
+    },
+    // 9. Kargo iadesi yapılmış sipariş (RETURNED -> returned artar, cancelled'a SAYILMAZ!)
+    {
+      id: 'ord-9-returned',
+      status: 'shipped',
+      paymentStatus: 'PAID',
+      total: 550,
+      createdAt: '2026-11-10T09:00:00+03:00',
+      shipping: {
+        barcode: 'HJ1234567895',
+        status: 'returned',
+        providerStatus: 'RETURNED',
+      },
+    },
+    // 10. Arşivlenmiş sipariş (archiveAt geçmiş -> archived artar, aktif sayıma ve aktif ciroya girmez)
+    {
+      id: 'ord-10-archived',
+      status: 'completed',
+      paymentStatus: 'PAID',
+      total: 1000,
+      createdAt: '2026-11-05T10:00:00+03:00',
+      completedAt: '2026-11-06T10:00:00+03:00',
+      archiveAt: '2026-11-07T10:00:00+03:00', // Geçmiş
+      shipping: {
+        barcode: 'HJ1234567896',
+        status: 'delivered',
+      },
+    },
+    // 11. Çöp kutusundaki sipariş (isTrash -> trash artar, aktif/arşiv/ciroya girmez)
+    {
+      id: 'ord-11-trash',
+      status: 'cancelled',
+      isTrash: true,
+      paymentStatus: 'PENDING',
+      total: 200,
+      createdAt: '2026-11-11T05:00:00+03:00',
+    },
+  ]
+
+  const stats = calculateOrderStats(mockOrders, fixedNow)
+
+  // 2. Sayım Doğrulamaları
+  assert.equal(stats.totalAll, 11, 'Toplam kayıt sayısı 11 olmalı')
+  assert.equal(stats.trash, 1, 'Çöp kutusundaki kayıt 1 olmalı')
+  assert.equal(stats.archived, 1, 'Arşivdeki kayıt 1 olmalı')
+  assert.equal(stats.total, 9, 'Aktif sipariş sayısı 9 olmalı (11 - 1 çöp - 1 arşiv)')
+  assert.equal(stats.active, 9, 'active ile total eşit olmalı')
+
+  // 3. Durum Dağılımı Doğrulaması (9 aktif sipariş)
+  assert.equal(stats.pending, 1, 'pending = 1 (ord-1)')
+  assert.equal(stats.processing, 1, 'processing = 1 (ord-2)')
+  assert.equal(stats.shipped, 4, 'shipped = 4 (ord-3, ord-4, ord-5, ord-6)')
+  assert.equal(stats.labelCreated, 1, 'labelCreated = 1 (ord-3)')
+  assert.equal(stats.accepted, 1, 'accepted = 1 (ord-4)')
+  assert.equal(stats.inTransit, 1, 'inTransit = 1 (ord-5)')
+  assert.equal(stats.outForDelivery, 1, 'outForDelivery = 1 (ord-6)')
+  assert.equal(stats.delivered, 1, 'delivered = 1 (ord-7)')
+  assert.equal(stats.cancelled, 1, 'cancelled = 1 (ord-8)')
+  assert.equal(stats.returned, 1, 'returned = 1 (ord-9)')
+
+  // İnvariant: Her aktif sipariş tam olarak 1 durum kategorisine aittir
+  const sumActiveCategories =
+    stats.pending +
+    stats.processing +
+    stats.shipped +
+    stats.delivered +
+    stats.cancelled +
+    stats.returned
+  assert.equal(sumActiveCategories, stats.total, 'Durum toplamı tam olarak aktif sipariş sayısına eşit olmalı')
+
+  // 4. RETURNED ≠ CANCELLED Ayrımı
+  assert.equal(stats.returned, 1, 'İade edilen sipariş returned olarak sayılmalı')
+  assert.equal(stats.cancelled, 1, 'İade edilen sipariş cancelled içine DAHİL EDİLMEMELİDİR')
+
+  // 5. Ciro / Gelir Doğrulaması (Yalnızca PAID siparişler!)
+  // Aktif PAID ve iptal/iade olmayan siparişler:
+  // ord-2: 500 TL (processing, PAID)
+  // ord-3: 450 TL (shipped, PAID)
+  // ord-4: 600 TL (shipped, PAID)
+  // ord-5: 750 TL (shipped, PAID)
+  // ord-6: 800 TL (shipped, PAID)
+  // ord-7: 900 TL (delivered, PAID)
+  // (ord-1 PENDING: 0 TL, ord-8 CANCELLED: 0 TL, ord-9 RETURNED: 0 TL)
+  // Toplam aktif ciro: 500 + 450 + 600 + 750 + 800 + 900 = 4000 TL
+  assert.equal(stats.revenue, 4000, 'Aktif PAID siparişlerin cirosu 4000 TL olmalıdır')
+
+  // Tüm ödenmiş ciro (arşiv dahil ord-10 1000 TL): 4000 + 1000 = 5000 TL
+  assert.equal(stats.totalPaidRevenue, 5000, 'Arşiv dahil toplam ödenmiş ciro 5000 TL olmalıdır')
+
+  // 6. Türkiye Saati (Europe/Istanbul) Gün Dönümü Doğrulaması
+  // Bugün (2026-11-11) oluşturulmuş aktif PAID siparişler:
+  // ord-2 (500) + ord-3 (450) + ord-7 (900) = 1850 TL
+  // (ord-10 2026-11-05, ord-4 ve ord-5 ve ord-9 2026-11-10, ord-6 2026-11-09)
+  assert.equal(stats.todayRevenue, 1850, 'Bugünün cirosu 1850 TL olmalıdır')
+
+  // Tarih yardımcı fonksiyonları
+  assert.equal(isTodayInIstanbul('2026-11-11T03:01:00+03:00', fixedNow), true)
+  assert.equal(isTodayInIstanbul('2026-11-10T23:59:59+03:00', fixedNow), false)
+  assert.equal(getIstanbulDateString(fixedNow), '2026-11-11')
+})
+
 
 
 
