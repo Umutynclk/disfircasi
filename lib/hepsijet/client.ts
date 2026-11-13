@@ -6,6 +6,8 @@ import {
   HepsiJetDeleteDeliveryOrderResponse,
 } from './types'
 import { createSampleHepsiJetLabelPdf } from './sampleLabel'
+import { AvailableDeliveryDate } from '../returns/types'
+import { buildHepsiJetTrackingUrl } from './tracking-url'
 
 export class HepsiJetTimeoutError extends Error {
   constructor(message: string) {
@@ -350,7 +352,7 @@ export async function deleteDeliveryOrder(
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
-  // HepsiJET yeni silme servisi: /delivery/deleteDeliveryOrder/{BARKOD_NO}
+  // HepsiJET silme servisi (resmi endpoint: /rest/delivery/deleteDeliveryOrder/{BARKOD_NO})
   let endpointUrl: string
   const customPath = process.env.HEPSIJET_CANCEL_ENDPOINT_PATH?.trim()
   if (customPath) {
@@ -360,14 +362,14 @@ export async function deleteDeliveryOrder(
       endpointUrl = `${baseUrl}${customPath.startsWith('/') ? '' : '/'}${customPath}/${encodeURIComponent(deliveryRef)}`
     }
   } else {
-    endpointUrl = `${baseUrl}/delivery/deleteDeliveryOrder/${encodeURIComponent(deliveryRef)}`
+    endpointUrl = `${baseUrl}/rest/delivery/deleteDeliveryOrder/${encodeURIComponent(deliveryRef)}`
   }
 
   const httpMethod = (process.env.HEPSIJET_CANCEL_METHOD || 'POST').trim().toUpperCase()
   const deleteReason = payload.deleteReason || 'IPTAL'
 
   try {
-    const response = await fetch(endpointUrl, {
+    let response = await fetch(endpointUrl, {
       method: httpMethod,
       headers: {
         'Content-Type': 'application/json',
@@ -381,6 +383,28 @@ export async function deleteDeliveryOrder(
       cache: 'no-store',
       signal: controller.signal,
     })
+
+    // Resmi /rest/delivery/deleteDeliveryOrder 404 dönerse /delivery/deleteDeliveryOrder fallback'ini dene
+    if (response.status === 404 && !customPath) {
+      const fallbackUrl = `${baseUrl}/delivery/deleteDeliveryOrder/${encodeURIComponent(deliveryRef)}`
+      const fallbackResponse = await fetch(fallbackUrl, {
+        method: httpMethod,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Auth-Token': token,
+          'X-Requested-By': 'kaliport-hepsijet',
+        },
+        body: JSON.stringify({
+          deleteReason,
+        }),
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      if (fallbackResponse.status !== 404) {
+        response = fallbackResponse
+      }
+    }
 
     const rawText = await response.text().catch(() => '')
     let rawJson: any = null
@@ -435,7 +459,7 @@ export async function deleteDeliveryOrder(
 
       let errorMsg = ''
       if (response.status === 404) {
-        errorMsg = `HepsiJET kargo iptal servisi bulunamadı (HTTP 404). Çağrılan uç nokta: [${httpMethod}] ${endpointUrl}. Canlı API üzerinde bu endpoint mevcut değildir veya farklı bir metot/path gerektirmektedir. Canlı gönderi durumu güvenceye alınmış ve yönetici incelemesine sunulmuştur.`
+        errorMsg = `HepsiJET kargo iptal servisi bulunamadı (HTTP 404). Çağrılan uç nokta: [${httpMethod}] ${endpointUrl}.`
       } else {
         errorMsg = extractedMessage
           ? `HepsiJET kargo iptal isteği başarısız oldu (HTTP ${response.status}): ${extractedMessage}`
@@ -461,6 +485,251 @@ export async function deleteDeliveryOrder(
     throw err
   } finally {
     clearTimeout(timeoutId)
+  }
+}
+
+export interface FindAvailableDeliveryDatesParams {
+  startDate: string // YYYY-MM-DD
+  endDate: string   // YYYY-MM-DD
+  deliveryType?: string // 'RETURNED'
+  city: string
+  town: string
+}
+
+/**
+ * HepsiJET randevulu toplama/iade için uygun tarihleri ve saat dilimlerini sorgular.
+ * GET /rest/delivery/findAvailableDeliveryDatesV2
+ */
+export async function findAvailableDeliveryDatesV2(
+  params: FindAvailableDeliveryDatesParams
+): Promise<AvailableDeliveryDate[]> {
+  const { baseUrl, isLiveDispatchEnabled } = getCredentials()
+  const { startDate, endDate, deliveryType = 'RETURNED', city, town } = params
+
+  if (!city || !town) {
+    throw new Error('İl ve ilçe (city, town) bilgisi zorunludur.')
+  }
+
+  // Canlı gönderim kapalıysa güvenli test/simülasyon tarihleri döndür
+  if (!isLiveDispatchEnabled) {
+    const simulatedDates: AvailableDeliveryDate[] = []
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const cur = new Date(start)
+
+    while (cur <= end && simulatedDates.length < 5) {
+      const day = cur.getDay() // 0 = Sun
+      if (day !== 0) { // Pazar hariç
+        const dStr = cur.toISOString().split('T')[0]
+        simulatedDates.push({
+          date: dStr,
+          available: true,
+          deliverySlot: [
+            { slot: 1, slotDescription: '09:00 - 13:00 (Öğleden Önce)', available: true },
+            { slot: 2, slotDescription: '13:00 - 18:00 (Öğleden Sonra)', available: true },
+          ],
+        })
+      }
+      cur.setDate(cur.getDate() + 1)
+    }
+    return simulatedDates
+  }
+
+  const token = await getHepsiJetAuthToken()
+  const url = new URL(`${baseUrl}/rest/delivery/findAvailableDeliveryDatesV2`)
+  url.searchParams.append('startDate', startDate)
+  url.searchParams.append('endDate', endDate)
+  url.searchParams.append('deliveryType', deliveryType)
+  url.searchParams.append('city', city.toUpperCase().trim())
+  url.searchParams.append('town', town.toUpperCase().trim())
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'X-Auth-Token': token,
+        'X-Requested-By': 'kaliport-hepsijet',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`HepsiJET randevu tarihi sorgusu başarısız (HTTP ${response.status}): ${text}`)
+    }
+
+    const json = await response.json()
+    const rawList = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : []
+
+    return rawList.map((item: any) => ({
+      date: typeof item === 'string' ? item : item.date || item.deliveryDate || '',
+      available: typeof item.available === 'boolean' ? item.available : true,
+      deliverySlot: Array.isArray(item.deliverySlot)
+        ? item.deliverySlot.map((s: any) => ({
+            slot: Number(s.slot || s.id || 1),
+            slotDescription: s.slotDescription || s.description || (s.slot === 1 ? '09:00 - 13:00' : '13:00 - 18:00'),
+            available: typeof s.available === 'boolean' ? s.available : true,
+          }))
+        : [
+            { slot: 1, slotDescription: '09:00 - 13:00', available: true },
+            { slot: 2, slotDescription: '13:00 - 18:00', available: true },
+          ],
+    }))
+  } catch (err: any) {
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+      throw new HepsiJetTimeoutError('HepsiJET randevu sorgusu zaman aşımına uğradı (10 sn).')
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+export interface CreateReturnShipmentOptions {
+  orderId: string
+  orderNumber: string
+  returnRequestId: string
+  appointmentDate: string // YYYY-MM-DD
+  appointmentSlot?: number
+  appointmentSlotDescription?: string
+  customer: {
+    fullName: string
+    phone: string
+    email?: string
+  }
+  pickupAddress: {
+    address: string
+    city: string
+    town: string
+    district?: string
+  }
+  items: Array<{
+    name: string
+    sku?: string
+    quantity: number
+    price: number
+  }>
+  desi?: number
+  weight?: number
+}
+
+/**
+ * HepsiJET randevulu iade gönderisi oluşturur (deliveryType: 'RETURNED').
+ * Orijinal kargo barkodunu değiştirmez, ayrı bir iade barkodu ve takip kaydı döner.
+ */
+export async function createHepsiJetReturnShipment(
+  options: CreateReturnShipmentOptions
+): Promise<{
+  status: 'OK'
+  message: string
+  barcode: string
+  trackingUrl: string
+  customerDeliveryNo: string
+  appointmentDate: string
+  isSimulated: boolean
+}> {
+  const { baseUrl, isLiveDispatchEnabled } = getCredentials()
+  const {
+    orderId,
+    orderNumber,
+    returnRequestId,
+    appointmentDate,
+    appointmentSlot = 1,
+    customer,
+    pickupAddress,
+    items,
+    desi = 1,
+    weight = 1,
+  } = options
+
+  const cleanOrderNum = (orderNumber || orderId).replace(/[^A-Za-z0-9]/g, '')
+  const returnSuffix = returnRequestId.slice(-6).toUpperCase()
+  const customerDeliveryNo = `RET-${cleanOrderNum}-${returnSuffix}`
+
+  // Canlı gönderim kapalıysa güvenli simülasyon modu
+  if (!isLiveDispatchEnabled) {
+    const simulatedBarcode = `HJ${customerDeliveryNo}`
+    return {
+      status: 'OK',
+      message: 'HepsiJET iade gönderisi başarıyla oluşturuldu (Korumalı Test Modu).',
+      barcode: simulatedBarcode,
+      trackingUrl: buildHepsiJetTrackingUrl(simulatedBarcode),
+      customerDeliveryNo,
+      appointmentDate,
+      isSimulated: true,
+    }
+  }
+
+  // Canlı HepsiJET RETURNED Gönderi Payload'ı
+  const totalPrice = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
+  const nameParts = customer.fullName.trim().split(/\s+/)
+  const firstName = nameParts[0] || 'Musteri'
+  const lastName = nameParts.slice(1).join(' ') || 'Soyad'
+
+  const payload: HepsiJetDeliveryOrderPayload = {
+    company: {
+      name: 'KALIPORT',
+      abbreviationCode: 'KLP',
+    },
+    delivery: {
+      customerDeliveryNo,
+      customerOrderId: orderNumber || orderId,
+      totalParcels: 1,
+      desi: Number(desi) || 1,
+      weight: Number(weight) || 1,
+      deliveryTotalPrice: totalPrice,
+      deliveryDateOriginal: appointmentDate,
+      deliverySlotOriginal: appointmentSlot,
+      deliveryType: 'RETURNED',
+      recipientPerson: 'KALIPORT MERKEZ DEPO',
+      recipientPersonPhone1: '08503083868',
+      product: {
+        productCode: 'HX_RETAIL',
+      },
+      receiver: {
+        firstName: 'KALIPORT',
+        lastName: 'DEPO',
+        phone1: '08503083868',
+        email: 'destek@sonrakam.com',
+      },
+      senderAddress: {
+        country: { name: 'Türkiye' },
+        city: { name: pickupAddress.city },
+        town: { name: pickupAddress.town },
+        district: pickupAddress.district ? { name: pickupAddress.district } : undefined,
+        addressLine1: pickupAddress.address,
+      },
+      recipientAddress: {
+        country: { name: 'Türkiye' },
+        city: { name: 'Konya' },
+        town: { name: 'Selçuklu' },
+        district: { name: 'Büyükkayacık' },
+        addressLine1: 'Büyükkayacık Mah. Ankara Cad. No:312/H (Gnc sanayi sitesi) Selçuklu / KONYA',
+      },
+      deliveryContent: items.map((it) => ({
+        productCode: it.sku || 'KLP-RET-ITEM',
+        productDescription: it.name,
+        quantity: it.quantity,
+      })),
+    },
+  }
+
+  const res = await sendDeliveryOrderEnhanced(payload)
+  const barcode = res?.data?.barcode || `HJ${customerDeliveryNo}`
+
+  return {
+    status: 'OK',
+    message: res.message || 'HepsiJET randevulu iade gönderisi başarıyla oluşturuldu.',
+    barcode,
+    trackingUrl: buildHepsiJetTrackingUrl(barcode),
+    customerDeliveryNo,
+    appointmentDate,
+    isSimulated: false,
   }
 }
 

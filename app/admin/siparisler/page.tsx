@@ -11,10 +11,11 @@ import {
   FiSettings, FiSliders, FiCheckCircle, FiAlertCircle, FiShield,
   FiDownload, FiExternalLink, FiFileText, FiInfo, FiXCircle,
   FiArchive, FiTrash2, FiBriefcase, FiCopy, FiZap,
-  FiVolume2, FiVolumeX,
+  FiVolume2, FiVolumeX, FiRotateCcw,
 } from 'react-icons/fi'
 
 import { getCurrentUser } from '@/lib/firebase/auth'
+import { ReturnRequest, ReturnStatus, RETURN_REASONS } from '@/lib/returns/types'
 import { OrderShippingData, HepsiJetSettings, OrderCancellationRecord } from '@/lib/hepsijet/types'
 import { generateBarcodeSvg } from '@/lib/utils/barcode'
 import {
@@ -116,13 +117,47 @@ const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; bg: str
   cancelled:  { label: 'İptal Edildi', color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    icon: FiX },
 }
 
+const RETURN_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  pending_admin_review: { label: 'İnceleme Bekliyor', color: 'text-amber-800', bg: 'bg-amber-50', border: 'border-amber-200' },
+  auto_preapproved: { label: 'Ön Onaylı', color: 'text-blue-800', bg: 'bg-blue-50', border: 'border-blue-200' },
+  approved: { label: 'Onaylandı', color: 'text-sky-800', bg: 'bg-sky-50', border: 'border-sky-200' },
+  awaiting_pickup_date: { label: 'Randevu Bekliyor', color: 'text-sky-800', bg: 'bg-sky-50', border: 'border-sky-200' },
+  pickup_scheduled: { label: 'Randevu Alındı', color: 'text-purple-800', bg: 'bg-purple-50', border: 'border-purple-200' },
+  return_shipment_created: { label: 'Kargo Kodu Alındı', color: 'text-purple-800', bg: 'bg-purple-50', border: 'border-purple-200' },
+  return_in_transit: { label: 'Kargoda (Yolda)', color: 'text-indigo-800', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+  received_at_warehouse: { label: 'Depoya Ulaştı', color: 'text-orange-800', bg: 'bg-orange-50', border: 'border-orange-200' },
+  inspection: { label: 'İncelemede', color: 'text-amber-800', bg: 'bg-amber-50', border: 'border-amber-200' },
+  refund_pending: { label: 'İade Bekliyor', color: 'text-teal-800', bg: 'bg-teal-50', border: 'border-teal-200' },
+  refund_processing: { label: 'İade İşleniyor', color: 'text-teal-800', bg: 'bg-teal-50', border: 'border-teal-200' },
+  refunded: { label: 'İade Edildi', color: 'text-emerald-800', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  completed: { label: 'Tamamlandı', color: 'text-emerald-800', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  rejected: { label: 'Reddedildi', color: 'text-rose-800', bg: 'bg-rose-50', border: 'border-rose-200' },
+  cancelled: { label: 'İptal Edildi', color: 'text-slate-800', bg: 'bg-slate-50', border: 'border-slate-200' },
+}
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [viewTab, setViewTab] = useState<'active' | 'unprocessed24h' | 'archive' | 'trash'>('active')
+  const [viewTab, setViewTab] = useState<'active' | 'unprocessed24h' | 'archive' | 'trash' | 'returns'>('active')
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all')
   const [automationFilter, setAutomationFilter] = useState<'all' | 'ready' | 'pending_review'>('all')
+
+  // İade & Talep Yönetimi State'leri
+  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([])
+  const [returnsLoading, setReturnsLoading] = useState<boolean>(false)
+  const [returnStatusFilter, setReturnStatusFilter] = useState<string>('all')
+  const [returnSearch, setReturnSearch] = useState<string>('')
+  const [activeReturnModal, setActiveReturnModal] = useState<{
+    type: 'review' | 'inspect' | 'refund' | null
+    returnReq: ReturnRequest | null
+  }>({ type: null, returnReq: null })
+  const [adminReviewAction, setAdminReviewAction] = useState<'approve' | 'reject'>('approve')
+  const [adminReviewNote, setAdminReviewNote] = useState<string>('')
+  const [adminInspectResult, setAdminInspectResult] = useState<'passed' | 'failed' | 'partial'>('passed')
+  const [adminInspectNotes, setAdminInspectNotes] = useState<string>('')
+  const [adminRefundAmount, setAdminRefundAmount] = useState<number>(0)
+  const [returnActionLoading, setReturnActionLoading] = useState<boolean>(false)
+  const [returnActionError, setReturnActionError] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
@@ -239,6 +274,174 @@ export default function OrdersPage() {
     }
     loadHepsiJetSettings()
   }, [])
+
+  // İade Taleplerini Yükle
+  const fetchReturnRequests = async () => {
+    try {
+      setReturnsLoading(true)
+      const user = await getCurrentUser()
+      if (!user) return
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/returns', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && Array.isArray(json.returns)) {
+          setReturnRequests(json.returns)
+        }
+      }
+    } catch (err) {
+      console.warn('İade talepleri yüklenemedi:', err)
+    } finally {
+      setReturnsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchReturnRequests()
+  }, [])
+
+  useEffect(() => {
+    if (viewTab === 'returns') {
+      fetchReturnRequests()
+    }
+  }, [viewTab])
+
+  // İade Aksiyonları
+  const handleOpenReviewModal = (ret: ReturnRequest) => {
+    setActiveReturnModal({ type: 'review', returnReq: ret })
+    setAdminReviewAction('approve')
+    setAdminReviewNote('')
+    setReturnActionError(null)
+  }
+
+  const handleOpenInspectModal = (ret: ReturnRequest) => {
+    setActiveReturnModal({ type: 'inspect', returnReq: ret })
+    setAdminInspectResult('passed')
+    setAdminInspectNotes('')
+    setReturnActionError(null)
+  }
+
+  const handleOpenRefundModal = (ret: ReturnRequest) => {
+    setActiveReturnModal({ type: 'refund', returnReq: ret })
+    const calculatedAmount =
+      ret.refund?.amountTRY ??
+      ret.items.reduce(
+        (sum, item) =>
+          sum + (item.totalPriceAtPurchase || item.unitPriceAtPurchase * item.quantityRequested),
+        0
+      )
+    setAdminRefundAmount(calculatedAmount)
+    setReturnActionError(null)
+  }
+
+  const handleAdminReviewSubmit = async () => {
+    if (!activeReturnModal.returnReq) return
+    try {
+      setReturnActionLoading(true)
+      setReturnActionError(null)
+      const user = await getCurrentUser()
+      if (!user) throw new Error('Oturum bulunamadı')
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/returns/review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: activeReturnModal.returnReq.orderId,
+          returnId: activeReturnModal.returnReq.id,
+          action: adminReviewAction,
+          reviewNotes: adminReviewNote,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'İnceleme kaydedilemedi')
+      }
+      setActiveReturnModal({ type: null, returnReq: null })
+      await fetchReturnRequests()
+      alert(adminReviewAction === 'approve' ? 'İade talebi onaylandı. Müşteri kargo randevusu seçebilir.' : 'İade talebi reddedildi.')
+    } catch (err: any) {
+      setReturnActionError(err.message || 'Hata oluştu')
+    } finally {
+      setReturnActionLoading(false)
+    }
+  }
+
+  const handleAdminInspectSubmit = async () => {
+    if (!activeReturnModal.returnReq) return
+    try {
+      setReturnActionLoading(true)
+      setReturnActionError(null)
+      const user = await getCurrentUser()
+      if (!user) throw new Error('Oturum bulunamadı')
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/returns/inspect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: activeReturnModal.returnReq.orderId,
+          returnId: activeReturnModal.returnReq.id,
+          inspectionResult: adminInspectResult,
+          notes: adminInspectNotes,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Depo kontrolü kaydedilemedi')
+      }
+      setActiveReturnModal({ type: null, returnReq: null })
+      await fetchReturnRequests()
+      alert('Depo kontrol sonucu başarıyla kaydedildi.')
+    } catch (err: any) {
+      setReturnActionError(err.message || 'Hata oluştu')
+    } finally {
+      setReturnActionLoading(false)
+    }
+  }
+
+  const handleAdminRefundSubmit = async () => {
+    if (!activeReturnModal.returnReq) return
+    if (!confirm(`${adminRefundAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL tutarındaki iade tutarı PayTR üzerinden müşterinin kartına aktarılacaktır. Onaylıyor musunuz?`)) {
+      return
+    }
+    try {
+      setReturnActionLoading(true)
+      setReturnActionError(null)
+      const user = await getCurrentUser()
+      if (!user) throw new Error('Oturum bulunamadı')
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/returns/refund', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: activeReturnModal.returnReq.orderId,
+          returnId: activeReturnModal.returnReq.id,
+          refundAmount: adminRefundAmount,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'İade işlemi başarısız oldu')
+      }
+      setActiveReturnModal({ type: null, returnReq: null })
+      await fetchReturnRequests()
+      alert('PayTR ödeme iadesi başarıyla tamamlandı!')
+    } catch (err: any) {
+      setReturnActionError(err.message || 'Hata oluştu')
+    } finally {
+      setReturnActionLoading(false)
+    }
+  }
 
   const printSettings = hepsijetSettings?.printSettings
   const activePreset = printSettings?.preset || (printSettings?.orientation === 'portrait' ? '100x150_portrait' : '150x100_landscape')
@@ -1242,6 +1445,40 @@ export default function OrdersPage() {
 
   const readyForDispatchCount = currentTabOrders.filter((o) => o.shipping?.automationStatus === 'ready').length
   const pendingReviewCount = currentTabOrders.filter((o) => o.shipping?.automationStatus === 'pending_review').length
+  const pendingReturnsCount = returnRequests.filter((r) => r.status === 'pending_admin_review').length
+
+  const filteredReturns = returnRequests.filter((r) => {
+    const matchStatus =
+      returnStatusFilter === 'all'
+        ? true
+        : returnStatusFilter === 'pending_admin_review'
+        ? r.status === 'pending_admin_review'
+        : returnStatusFilter === 'approved'
+        ? r.status === 'auto_preapproved' || r.status === 'approved' || r.status === 'awaiting_pickup_date'
+        : returnStatusFilter === 'in_transit'
+        ? r.status === 'pickup_scheduled' || r.status === 'return_shipment_created' || r.status === 'return_in_transit'
+        : returnStatusFilter === 'delivered_to_warehouse'
+        ? r.status === 'received_at_warehouse' || r.status === 'inspection'
+        : returnStatusFilter === 'refund_pending'
+        ? r.status === 'refund_pending' || r.status === 'refund_processing'
+        : returnStatusFilter === 'completed'
+        ? r.status === 'completed' || r.status === 'refunded'
+        : returnStatusFilter === 'rejected'
+        ? r.status === 'rejected'
+        : true
+
+    const q = returnSearch.toLowerCase()
+    const matchSearch =
+      !q ||
+      r.id.toLowerCase().includes(q) ||
+      r.orderNumber.toLowerCase().includes(q) ||
+      r.customerName.toLowerCase().includes(q) ||
+      (r.customerPhone && r.customerPhone.toLowerCase().includes(q)) ||
+      (r.userEmail && r.userEmail.toLowerCase().includes(q)) ||
+      (r.returnShipment?.barcode && r.returnShipment.barcode.toLowerCase().includes(q))
+
+    return matchStatus && matchSearch
+  })
 
   // Stats (ortak orderStats yardımcısı ile hesaplanır)
   const stats = calculateOrderStats(orders, nowMs)
@@ -1588,6 +1825,30 @@ export default function OrdersPage() {
           </span>
         </button>
 
+        <button
+          onClick={() => {
+            setViewTab('returns')
+            fetchReturnRequests()
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black transition-all ${
+            viewTab === 'returns'
+              ? 'bg-purple-600 text-white shadow-sm'
+              : 'bg-white border border-purple-200 text-purple-700 hover:bg-purple-50'
+          }`}
+        >
+          <FiRotateCcw className="w-4 h-4 text-purple-500" />
+          <span>İadeler & Talepler</span>
+          {pendingReturnsCount > 0 ? (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-purple-500 text-white font-bold animate-pulse">
+              {pendingReturnsCount}
+            </span>
+          ) : returnRequests.length > 0 ? (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-purple-100 text-purple-800 font-bold">
+              {returnRequests.length}
+            </span>
+          ) : null}
+        </button>
+
         <div className="ml-auto flex items-center gap-2 w-full sm:w-auto justify-end">
           {lastTrackingSyncAt && (
             <span className="text-[11px] text-slate-400 hidden sm:inline">
@@ -1607,82 +1868,467 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-6 flex flex-col sm:flex-row items-center gap-4">
-        <div className="relative flex-1 w-full">
-          <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Sipariş no, müşteri adı veya e-posta ile ara..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-primary-500 transition-colors"
-          />
-        </div>
+      {viewTab === 'returns' ? (
+        <div className="space-y-6">
+          {/* Returns Filter Bar */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col sm:flex-row items-center gap-4">
+            <div className="relative flex-1 w-full">
+              <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Talep no, sipariş no, müşteri adı veya barkod ile ara..."
+                value={returnSearch}
+                onChange={(e) => setReturnSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-purple-500 transition-colors"
+              />
+            </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-              statusFilter === 'all'
-                ? 'bg-gray-900 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Tümü ({orders.length})
-          </button>
-          {(Object.entries(STATUS_CONFIG) as [OrderStatus, typeof STATUS_CONFIG.pending][]).map(([s, cfg]) => {
-            const count = orders.filter((o) => o.status === s).length
-            return (
+            <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
               <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
-                  statusFilter === s
-                    ? `${cfg.bg} ${cfg.color} ${cfg.border} ring-2 ring-current`
-                    : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                onClick={() => setReturnStatusFilter('all')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  returnStatusFilter === 'all'
+                    ? 'bg-purple-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {cfg.label} ({count})
+                Tümü ({returnRequests.length})
               </button>
-            )
-          })}
-          {readyForDispatchCount > 0 && (
-            <button
-              onClick={() => setAutomationFilter(automationFilter === 'ready' ? 'all' : 'ready')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
-                automationFilter === 'ready'
-                  ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-              }`}
-            >
-              ✓ Gönderime Hazır ({readyForDispatchCount})
-            </button>
-          )}
-          {pendingReviewCount > 0 && (
-            <button
-              onClick={() => setAutomationFilter(automationFilter === 'pending_review' ? 'all' : 'pending_review')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
-                automationFilter === 'pending_review'
-                  ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400'
-                  : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-              }`}
-            >
-              ⚠ Onay Bekleyen ({pendingReviewCount})
-            </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('pending_admin_review')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'pending_admin_review'
+                    ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400'
+                    : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                }`}
+              >
+                İnceleme Bekleyen ({returnRequests.filter((r) => r.status === 'pending_admin_review').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('approved')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'approved'
+                    ? 'bg-sky-600 text-white border-sky-600 ring-2 ring-sky-400'
+                    : 'bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100'
+                }`}
+              >
+                Randevu Bekleyen ({returnRequests.filter((r) => r.status === 'auto_preapproved' || r.status === 'approved' || r.status === 'awaiting_pickup_date').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('in_transit')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'in_transit'
+                    ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-400'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-800 hover:bg-indigo-100'
+                }`}
+              >
+                Kargo Sürecinde ({returnRequests.filter((r) => r.status === 'pickup_scheduled' || r.status === 'return_shipment_created' || r.status === 'return_in_transit').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('delivered_to_warehouse')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'delivered_to_warehouse'
+                    ? 'bg-orange-600 text-white border-orange-600 ring-2 ring-orange-400'
+                    : 'bg-orange-50 border-orange-200 text-orange-800 hover:bg-orange-100'
+                }`}
+              >
+                Depoda Kontrol Bekleyen ({returnRequests.filter((r) => r.status === 'received_at_warehouse' || r.status === 'inspection').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('refund_pending')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'refund_pending'
+                    ? 'bg-teal-600 text-white border-teal-600 ring-2 ring-teal-400'
+                    : 'bg-teal-50 border-teal-200 text-teal-800 hover:bg-teal-100'
+                }`}
+              >
+                İade Bekleyen ({returnRequests.filter((r) => r.status === 'refund_pending' || r.status === 'refund_processing').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('completed')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'completed'
+                    ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                }`}
+              >
+                Tamamlanan ({returnRequests.filter((r) => r.status === 'completed' || r.status === 'refunded').length})
+              </button>
+
+              <button
+                onClick={() => setReturnStatusFilter('rejected')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                  returnStatusFilter === 'rejected'
+                    ? 'bg-rose-600 text-white border-rose-600 ring-2 ring-rose-400'
+                    : 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100'
+                }`}
+              >
+                Reddedilen ({returnRequests.filter((r) => r.status === 'rejected').length})
+              </button>
+
+              <button
+                onClick={fetchReturnRequests}
+                disabled={returnsLoading}
+                className="p-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-all disabled:opacity-50"
+                title="Yenile"
+              >
+                <FiRefreshCw className={`w-4 h-4 ${returnsLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Returns Cards List */}
+          {returnsLoading ? (
+            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+              <FiRefreshCw className="w-8 h-8 text-purple-600 animate-spin mx-auto mb-3" />
+              <p className="text-sm font-bold text-gray-700">İade talepleri yükleniyor...</p>
+            </div>
+          ) : filteredReturns.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-200 p-16 text-center">
+              <FiRotateCcw className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="font-semibold text-gray-700">İade veya iptal talebi bulunamadı</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {returnStatusFilter !== 'all' || returnSearch
+                  ? 'Filtre kriterlerinizi değiştirmeyi deneyin.'
+                  : 'Henüz müşteri tarafından oluşturulmuş bir iade talebi bulunmuyor.'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredReturns.map((ret) => {
+                const statusCfg = RETURN_STATUS_CONFIG[ret.status] || {
+                  label: ret.status,
+                  color: 'text-gray-700',
+                  bg: 'bg-gray-100',
+                  border: 'border-gray-200',
+                }
+                const relatedOrder = orders.find((o) => o.id === ret.orderId || o.orderNumber === ret.orderNumber)
+                const totalItemAmount = ret.items.reduce(
+                  (s, it) => s + (it.totalPriceAtPurchase || it.unitPriceAtPurchase * it.quantityRequested),
+                  0
+                )
+
+                return (
+                  <div
+                    key={ret.id}
+                    className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow space-y-4"
+                  >
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="font-mono text-sm font-black text-gray-900">
+                          #{ret.id.toUpperCase()}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (relatedOrder) {
+                              setSelectedOrder(relatedOrder)
+                            } else {
+                              alert('Sipariş verisi henüz yüklenmedi.')
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors cursor-pointer"
+                          title="Sipariş detayını görüntüle"
+                        >
+                          <FiShoppingBag className="w-3.5 h-3.5 text-slate-600" />
+                          <span>Sipariş #{ret.orderNumber || ret.orderId.slice(-8).toUpperCase()}</span>
+                        </button>
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            ret.scope === 'full'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          }`}
+                        >
+                          {ret.scope === 'full' ? 'Tüm Sipariş İadesi' : 'Kısmi Ürün İadesi'}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {formatDate(ret.createdAt)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${statusCfg.bg} ${statusCfg.color} ${statusCfg.border}`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                          {statusCfg.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Body Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                      {/* Customer Info & Return Reason */}
+                      <div className="bg-gray-50/70 rounded-xl p-3.5 border border-gray-100 space-y-2">
+                        <p className="font-bold text-gray-700 uppercase text-[10px] tracking-wider">
+                          Müşteri & İade Gerekçesi
+                        </p>
+                        <div>
+                          <p className="font-bold text-gray-900 text-sm">{ret.customerName}</p>
+                          <p className="text-gray-500">{ret.userEmail}</p>
+                          {ret.customerPhone && <p className="text-gray-500">{ret.customerPhone}</p>}
+                        </div>
+                        <div className="pt-2 border-t border-gray-200/60">
+                          <p className="font-semibold text-gray-800">
+                            <strong>Neden:</strong> {ret.reason || ret.reasonCode}
+                          </p>
+                          {ret.customerNote && (
+                            <p className="mt-1 text-gray-600 italic bg-white p-2 rounded-lg border border-gray-200">
+                              &ldquo;{ret.customerNote}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Items */}
+                      <div className="bg-gray-50/70 rounded-xl p-3.5 border border-gray-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="font-bold text-gray-700 uppercase text-[10px] tracking-wider">
+                            İade Edilecek Ürünler
+                          </p>
+                          <span className="font-black text-gray-900">{formatPrice(totalItemAmount)}</span>
+                        </div>
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                          {ret.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-2 bg-white p-2 rounded-lg border border-gray-200/60">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-gray-900 truncate">{item.productName}</p>
+                                <p className="text-[11px] text-gray-500">{item.quantityRequested} Adet × {formatPrice(item.unitPriceAtPurchase)}</p>
+                              </div>
+                              <span className="font-bold text-gray-800 whitespace-nowrap">
+                                {formatPrice(item.totalPriceAtPurchase || item.unitPriceAtPurchase * item.quantityRequested)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* HepsiJET Shipment & Depo Status */}
+                      <div className="bg-gray-50/70 rounded-xl p-3.5 border border-gray-100 space-y-2">
+                        <p className="font-bold text-gray-700 uppercase text-[10px] tracking-wider">
+                          HepsiJET & Depo Durumu
+                        </p>
+                        {ret.returnShipment?.barcode ? (
+                          <div className="space-y-1.5 bg-white p-2.5 rounded-lg border border-purple-200">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-purple-700 font-bold">HepsiJET İade Kodu</span>
+                              <span className="font-mono font-black text-purple-900">{ret.returnShipment.barcode}</span>
+                            </div>
+                            {ret.returnShipment.appointmentDate && (
+                              <p className="text-gray-600">
+                                <strong>Randevu:</strong> {ret.returnShipment.appointmentDate} (
+                                {ret.returnShipment.appointmentSlotDescription || 'Saat Aralığı Belirtilmedi'})
+                              </p>
+                            )}
+                            {ret.returnShipment.trackingUrl && (
+                              <a
+                                href={ret.returnShipment.trackingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-purple-700 hover:text-purple-900 font-bold underline"
+                              >
+                                <FiExternalLink className="w-3 h-3" />
+                                <span>HepsiJET Kargo Takip</span>
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 text-amber-800 text-[11px]">
+                            {ret.status === 'pending_admin_review'
+                              ? '⏳ Yönetici onayı bekliyor. Onay sonrası müşteri randevu alacaktır.'
+                              : '📅 Randevu seçimi bekleniyor.'}
+                          </div>
+                        )}
+
+                        {/* Inspection / Refund Badges */}
+                        <div className="space-y-1 pt-1">
+                          {ret.inspection?.status && ret.inspection.status !== 'not_started' && (
+                            <div
+                              className={`p-2 rounded-lg text-[11px] font-semibold border ${
+                                ret.inspection.status === 'passed'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : ret.inspection.status === 'failed'
+                                  ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}
+                            >
+                              <p>
+                                <strong>Depo Kontrolü:</strong>{' '}
+                                {ret.inspection.status === 'passed'
+                                  ? '✓ Kusursuz Kabul Edildi'
+                                  : ret.inspection.status === 'failed'
+                                  ? '✗ Kusurlu / Reddedildi'
+                                  : '⚠ Kısmi Kabul'}
+                              </p>
+                              {ret.inspection.notes && <p className="mt-0.5 text-[10px]">{ret.inspection.notes}</p>}
+                            </div>
+                          )}
+
+                          {ret.refund?.status === 'refunded' && (
+                            <div className="p-2 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <p>✓ PayTR İadesi Yapıldı: {formatPrice(ret.refund.amountTRY || totalItemAmount)}</p>
+                              {ret.refund.transactionId && (
+                                <p className="text-[10px] font-mono text-emerald-700">Ref: {ret.refund.transactionId}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons Footer */}
+                    <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        {ret.approval?.reviewedBy && (
+                          <span>İnceleyen: <strong>{ret.approval.reviewedBy}</strong></span>
+                        )}
+                        {ret.approval?.rejectionReason && (
+                          <span className="text-rose-600">Ret Gerekçesi: {ret.approval.rejectionReason}</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {ret.status === 'pending_admin_review' && (
+                          <button
+                            onClick={() => handleOpenReviewModal(ret)}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-purple-600/30 cursor-pointer"
+                          >
+                            <FiCheck className="w-3.5 h-3.5" />
+                            <span>Talebi İncele & Karar Ver</span>
+                          </button>
+                        )}
+
+                        {(ret.status === 'return_shipment_created' ||
+                          ret.status === 'return_in_transit' ||
+                          ret.status === 'received_at_warehouse' ||
+                          ret.status === 'inspection') &&
+                          ret.inspection?.status !== 'passed' && (
+                            <button
+                              onClick={() => handleOpenInspectModal(ret)}
+                              className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-amber-600/30 cursor-pointer"
+                            >
+                              <FiPackage className="w-3.5 h-3.5" />
+                              <span>Depo Kontrolü Yap</span>
+                            </button>
+                          )}
+
+                        {(ret.status === 'refund_pending' ||
+                          (ret.inspection?.status === 'passed' && ret.refund?.status !== 'refunded')) && (
+                          <button
+                            onClick={() => handleOpenRefundModal(ret)}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-600/30 cursor-pointer"
+                          >
+                            <FiRotateCcw className="w-3.5 h-3.5" />
+                            <span>Para İadesi Yap (PayTR)</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            if (relatedOrder) {
+                              setSelectedOrder(relatedOrder)
+                            } else {
+                              alert('Sipariş bulunamadı')
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          <FiEye className="w-3.5 h-3.5" />
+                          <span>Siparişi Aç</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Filters */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-6 flex flex-col sm:flex-row items-center gap-4">
+            <div className="relative flex-1 w-full">
+              <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Sipariş no, müşteri adı veya e-posta ile ara..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+              />
+            </div>
 
-      {/* Orders List */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <FiShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="font-semibold text-gray-700">Sipariş bulunamadı</p>
-            <p className="text-xs text-gray-400 mt-1">Arama kriterlerinizi değiştirmeyi deneyin</p>
+            <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  statusFilter === 'all'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Tümü ({orders.length})
+              </button>
+              {(Object.entries(STATUS_CONFIG) as [OrderStatus, typeof STATUS_CONFIG.pending][]).map(([s, cfg]) => {
+                const count = orders.filter((o) => o.status === s).length
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                      statusFilter === s
+                        ? `${cfg.bg} ${cfg.color} ${cfg.border} ring-2 ring-current`
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {cfg.label} ({count})
+                  </button>
+                )
+              })}
+              {readyForDispatchCount > 0 && (
+                <button
+                  onClick={() => setAutomationFilter(automationFilter === 'ready' ? 'all' : 'ready')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                    automationFilter === 'ready'
+                      ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                >
+                  ✓ Gönderime Hazır ({readyForDispatchCount})
+                </button>
+              )}
+              {pendingReviewCount > 0 && (
+                <button
+                  onClick={() => setAutomationFilter(automationFilter === 'pending_review' ? 'all' : 'pending_review')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-colors ${
+                    automationFilter === 'pending_review'
+                      ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400'
+                      : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                  }`}
+                >
+                  ⚠ Onay Bekleyen ({pendingReviewCount})
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
+
+          {/* Orders List */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="text-center py-16 text-gray-500">
+                <FiShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="font-semibold text-gray-700">Sipariş bulunamadı</p>
+                <p className="text-xs text-gray-400 mt-1">Arama kriterlerinizi değiştirmeyi deneyin</p>
+              </div>
+            ) : (
           <div className="divide-y divide-gray-100">
             {filtered.map((order) => {
               const commonStatus = getCommonOrderDisplayStatus(order)
@@ -1969,6 +2615,8 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* ========================================================================= */}
       {/* 1. ORDER DETAIL MODAL                                                    */}
@@ -3305,6 +3953,471 @@ export default function OrdersPage() {
                     <>
                       <FiXCircle className="w-3.5 h-3.5" />
                       <span>İptali Onayla</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* 5. RETURN REVIEW MODAL                                                   */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {activeReturnModal.type === 'review' && activeReturnModal.returnReq && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              if (!returnActionLoading) setActiveReturnModal({ type: null, returnReq: null })
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                    <FiRotateCcw className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">İade Talebini İncele</h3>
+                    <p className="text-xs text-gray-400">
+                      Sipariş #{activeReturnModal.returnReq.orderNumber} • Talep #{activeReturnModal.returnReq.id}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  disabled={returnActionLoading}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Müşteri ve Gerekçe */}
+              <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5">
+                <p className="font-semibold text-gray-800">
+                  <strong>Müşteri:</strong> {activeReturnModal.returnReq.customerName} ({activeReturnModal.returnReq.userEmail})
+                </p>
+                <p className="font-semibold text-gray-800">
+                  <strong>İade Nedeni:</strong> {activeReturnModal.returnReq.reason || activeReturnModal.returnReq.reasonCode}
+                </p>
+                {activeReturnModal.returnReq.customerNote && (
+                  <p className="text-gray-600 italic bg-white p-2 rounded-lg border border-gray-200">
+                    &ldquo;{activeReturnModal.returnReq.customerNote}&rdquo;
+                  </p>
+                )}
+                <div className="pt-1 flex items-center justify-between font-bold text-gray-700">
+                  <span>İade Edilecek Ürün Sayısı:</span>
+                  <span>{activeReturnModal.returnReq.items.reduce((s, i) => s + i.quantityRequested, 0)} Adet</span>
+                </div>
+              </div>
+
+              {/* Karar Seçimi */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-700 block">Kararınız</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdminReviewAction('approve')}
+                    className={`p-3 rounded-xl border text-xs font-bold text-left transition-all ${
+                      adminReviewAction === 'approve'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-400'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <FiCheckCircle className="w-4 h-4 text-emerald-600" />
+                      <span>Onayla</span>
+                    </div>
+                    <p className="text-[11px] font-normal text-emerald-700">
+                      Müşteriye HepsiJET iade randevu seçimi açılır.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminReviewAction('reject')}
+                    className={`p-3 rounded-xl border text-xs font-bold text-left transition-all ${
+                      adminReviewAction === 'reject'
+                        ? 'border-rose-500 bg-rose-50 text-rose-800 ring-2 ring-rose-400'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <FiXCircle className="w-4 h-4 text-rose-600" />
+                      <span>Reddet</span>
+                    </div>
+                    <p className="text-[11px] font-normal text-rose-700">
+                      Talep kapatılır, gerekçe müşteriye bildirilir.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Yönetici Notu */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 block">
+                  {adminReviewAction === 'reject' ? 'Ret Gerekçesi (Zorunlu)' : 'Yönetici Notu (Opsiyonel)'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={adminReviewNote}
+                  onChange={(e) => setAdminReviewNote(e.target.value)}
+                  placeholder={
+                    adminReviewAction === 'reject'
+                      ? 'İade talebinin neden reddedildiğini açıklayın...'
+                      : 'Opsiyonel iç not veya müşteriye mesaj...'
+                  }
+                  className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none resize-none"
+                />
+              </div>
+
+              {returnActionError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                  <FiAlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{returnActionError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={returnActionLoading}
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  className="px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={returnActionLoading || (adminReviewAction === 'reject' && !adminReviewNote.trim())}
+                  onClick={handleAdminReviewSubmit}
+                  className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all flex items-center gap-2 shadow-sm disabled:opacity-50 cursor-pointer ${
+                    adminReviewAction === 'approve'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30'
+                      : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
+                  }`}
+                >
+                  {returnActionLoading ? (
+                    <>
+                      <FiRefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Kaydediliyor...</span>
+                    </>
+                  ) : adminReviewAction === 'approve' ? (
+                    <>
+                      <FiCheck className="w-3.5 h-3.5" />
+                      <span>Talebi Onayla</span>
+                    </>
+                  ) : (
+                    <>
+                      <FiX className="w-3.5 h-3.5" />
+                      <span>Talebi Reddet</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* 6. RETURN INSPECT (DEPO KONTROLÜ) MODAL                                   */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {activeReturnModal.type === 'inspect' && activeReturnModal.returnReq && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              if (!returnActionLoading) setActiveReturnModal({ type: null, returnReq: null })
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+                    <FiPackage className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">Depo Kontrolü ve Ürün İnceleme</h3>
+                    <p className="text-xs text-gray-400">
+                      Sipariş #{activeReturnModal.returnReq.orderNumber} • Kargo: {activeReturnModal.returnReq.returnShipment?.barcode || '-'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  disabled={returnActionLoading}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Ürünler Özeti */}
+              <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-2">
+                <p className="font-bold text-gray-700 uppercase text-[10px] tracking-wider">Teslim Alınan Ürünler</p>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {activeReturnModal.returnReq.items.map((it, i) => (
+                    <div key={i} className="flex justify-between bg-white p-2 rounded-lg border border-gray-200">
+                      <span className="font-medium text-gray-800">{it.productName}</span>
+                      <span className="font-bold text-gray-900">{it.quantityRequested} Adet</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* İnceleme Sonucu Seçimi */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-700 block">Depo İnceleme Sonucu</label>
+                <div className="space-y-2">
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      adminInspectResult === 'passed'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-400'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="inspectResult"
+                      checked={adminInspectResult === 'passed'}
+                      onChange={() => setAdminInspectResult('passed')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="font-bold text-xs text-emerald-800">Kusursuz / Onaylandı (Geçti)</p>
+                      <p className="text-[11px] text-emerald-700">
+                        Ürünler orijinal ambalajında, hasarsız ve eksiksiz teslim alındı. İade onaylanır, ödeme iadesi aşamasına geçer.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      adminInspectResult === 'failed'
+                        ? 'border-rose-500 bg-rose-50 text-rose-900 ring-2 ring-rose-400'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="inspectResult"
+                      checked={adminInspectResult === 'failed'}
+                      onChange={() => setAdminInspectResult('failed')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="font-bold text-xs text-rose-800">Kusurlu / Reddedildi (Kaldı)</p>
+                      <p className="text-[11px] text-rose-700">
+                        Ürün kullanılmış, ambalajı hasarlı veya hijyen koşullarına uygun değil. İade reddedilir.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      adminInspectResult === 'partial'
+                        ? 'border-amber-500 bg-amber-50 text-amber-900 ring-2 ring-amber-400'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="inspectResult"
+                      checked={adminInspectResult === 'partial'}
+                      onChange={() => setAdminInspectResult('partial')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="font-bold text-xs text-amber-800">Kısmi Kabul</p>
+                      <p className="text-[11px] text-amber-700">
+                        Ürünlerin bir kısmı uygun, bir kısmı uygun değil. Açıklama girilmelidir.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Depo Notları */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 block">Depo Kontrol Notu</label>
+                <textarea
+                  rows={2}
+                  value={adminInspectNotes}
+                  onChange={(e) => setAdminInspectNotes(e.target.value)}
+                  placeholder="Kutu durumu, bandrol, açılma izi veya genel notlar..."
+                  className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none resize-none"
+                />
+              </div>
+
+              {returnActionError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                  <FiAlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{returnActionError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={returnActionLoading}
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  className="px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={returnActionLoading}
+                  onClick={handleAdminInspectSubmit}
+                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm shadow-amber-600/30 disabled:opacity-50 cursor-pointer"
+                >
+                  {returnActionLoading ? (
+                    <>
+                      <FiRefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Kaydediliyor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FiCheck className="w-3.5 h-3.5" />
+                      <span>Sonucu Kaydet</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* 7. RETURN REFUND (PAYTR İADE) MODAL                                      */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {activeReturnModal.type === 'refund' && activeReturnModal.returnReq && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              if (!returnActionLoading) setActiveReturnModal({ type: null, returnReq: null })
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <FiRotateCcw className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">PayTR Para İadesi</h3>
+                    <p className="text-xs text-gray-400">
+                      Sipariş #{activeReturnModal.returnReq.orderNumber} • Talep #{activeReturnModal.returnReq.id}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  disabled={returnActionLoading}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Bilgilendirme */}
+              <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200 text-xs text-emerald-800 space-y-1">
+                <p className="font-bold">Müşteri: {activeReturnModal.returnReq.customerName}</p>
+                <p>Ürünler depo kontrolünden başarıyla geçmiştir. İade tutarı doğrudan PayTR API aracılığıyla müşterinin ödeme yaptığı karta iade edilecektir.</p>
+              </div>
+
+              {/* İade Tutarı Girişi */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 block">İade Edilecek Tutar (TL)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    value={adminRefundAmount}
+                    onChange={(e) => setAdminRefundAmount(parseFloat(e.target.value) || 0)}
+                    disabled={returnActionLoading}
+                    className="w-full text-lg font-black p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">TL</span>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Hesaplanan ürün bedeli: {formatPrice(activeReturnModal.returnReq.items.reduce((s, i) => s + (i.totalPriceAtPurchase || i.unitPriceAtPurchase * i.quantityRequested), 0))}
+                </p>
+              </div>
+
+              {/* Uyarı Kutusu */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
+                <FiAlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Dikkat:</strong> Bu işlem geri alınamaz. Onayladığınızda PayTR sunucusu ile anında iletişim kurularak kart iadesi tetiklenecektir.
+                </span>
+              </div>
+
+              {returnActionError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                  <FiAlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{returnActionError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={returnActionLoading}
+                  onClick={() => setActiveReturnModal({ type: null, returnReq: null })}
+                  className="px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={returnActionLoading || adminRefundAmount <= 0}
+                  onClick={handleAdminRefundSubmit}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm shadow-emerald-600/30 disabled:opacity-50 cursor-pointer"
+                >
+                  {returnActionLoading ? (
+                    <>
+                      <FiRefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>İade Yapılıyor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FiCheck className="w-3.5 h-3.5" />
+                      <span>{formatPrice(adminRefundAmount)} İadeyi Onayla</span>
                     </>
                   )}
                 </button>

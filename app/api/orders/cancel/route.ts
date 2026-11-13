@@ -171,15 +171,33 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // HepsiJET API silme çağrısı
+      // HepsiJET API silme çağrısı (Resmi DELETE/POST deleteDeliveryOrder)
       try {
-        await deleteDeliveryOrder({
+        const deleteRes = await deleteDeliveryOrder({
           customerDeliveryNo: targetCustomerDeliveryNo,
           barcode: targetBarcode,
           deleteReason: `Müşteri İptali: ${cancelReason}`,
         })
+
+        if (deleteRes.status !== 'OK') {
+          throw new Error(deleteRes.message || 'HepsiJET kargo iptal servisi onay vermedi.')
+        }
       } catch (hErr: any) {
-        console.warn('HepsiJET gönderi silme uyarısı (sipariş yine de iptal edilecek):', hErr?.message || hErr)
+        console.error('HepsiJET gönderi silme hatası:', hErr?.message || hErr)
+        // Kargo iptali başarısız olduğunda sipariş yanlışlıkla iptal edilmiş gösterilmez
+        await orderRef.update(cleanFirestoreData({
+          'shipping.status': 'cancel_failed',
+          'shipping.cancelFailedReason': hErr?.message || 'HepsiJET kargo iptal servisi başarısız oldu.',
+          'shipping.updatedAt': new Date().toISOString(),
+        }))
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Kargo gönderisi iptal edilemedi (${hErr?.message || 'HepsiJET kargo durumu uygun değil'}). Paketiniz kurye tarafından teslim alınmış olabilir; teslimat sonrası iade talebi oluşturabilirsiniz.`,
+          },
+          { status: 422 }
+        )
       }
     }
 
