@@ -247,7 +247,15 @@ export default function Footer() {
         {/* Developer Signature */}
         <div className="pt-6 mt-6 border-t border-slate-900/60 flex items-center justify-center text-center">
           <p className="text-[11px] tracking-wider text-slate-400 font-medium">
-            Developed by Umutynclk
+            Developed by{' '}
+            <a
+              href="https://www.instagram.com/umutynclk/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-sky-400 transition-colors"
+            >
+              Umutynclk
+            </a>
           </p>
         </div>
       </div>
