@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const printerId = body.printerId || auth.agent.printerId
+    const agentVersion = body.agentVersion ? String(body.agentVersion) : undefined
 
     // Agent'ın çevrimiçi (online) olduğunu doğrula ve son sinyal zamanını güncelle
     try {
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
           lastHeartbeatAt: new Date().toISOString(),
           printerId: printerId || '4BARCODE 4B-2054TG',
           online: true,
+          ...(agentVersion ? { agentVersion } : {}),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }

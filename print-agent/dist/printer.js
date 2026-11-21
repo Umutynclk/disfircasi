@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WindowsPrinterDriver = exports.SimulatedPrinterDriver = void 0;
+exports.resolveSumatraPdfExecutable = resolveSumatraPdfExecutable;
+exports.buildSumatraPrintArgs = buildSumatraPrintArgs;
 exports.createPrinterDriver = createPrinterDriver;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -26,7 +28,6 @@ class SimulatedPrinterDriver {
         }
     }
     async printPdf(pdfBuffer, job) {
-        // 1. PDF Bütünlük Doğrulaması (%PDF-)
         if (!pdfBuffer || pdfBuffer.length < 5) {
             return {
                 success: false,
@@ -48,17 +49,12 @@ class SimulatedPrinterDriver {
                 errorCode: 'CORRUPTED_PDF_HEADER',
             };
         }
-        // 2. Simülasyon Çıktı Dosyası Oluştur
         const safeJobId = (job.jobId || 'job_sample').replace(/[^a-zA-Z0-9_-]/g, '_');
         const fileName = `${safeJobId}.pdf`;
         const filePath = path_1.default.join(this.outputDir, fileName);
         try {
             fs_1.default.writeFileSync(filePath, pdfBuffer);
-            // Gerçekçi termal baskı süresi simülasyonu (100ms)
             await new Promise((resolve) => setTimeout(resolve, 100));
-            // KRİTİK GÜVENLİK: Simülasyon başarılı olsa da printed=false kalır.
-            // PDF diske yazıldı ama fiziksel kâğıda çıkmadı.
-            // Agent bu sonucu sunucuya 'simulated' olarak bildirmelidir, 'printed' DEĞİL.
             return {
                 success: true,
                 status: 'simulated',
@@ -81,37 +77,121 @@ class SimulatedPrinterDriver {
 }
 exports.SimulatedPrinterDriver = SimulatedPrinterDriver;
 /**
- * 2. Gerçek Windows Termal Yazıcı Sürücüsü (PALMX TXP 400)
- * Yalnızca Windows ortamında ve DRY_RUN=false iken devreye girer.
+ * Windows ortamında SumatraPDF.exe ikilisini öncelik sırasıyla arar.
+ * Asla GUI açan Start-Process -Verb PrintTo fallback'i kullanılmaz.
+ */
+function resolveSumatraPdfExecutable(customPath) {
+    const candidates = [];
+    if (customPath && customPath.trim()) {
+        candidates.push(path_1.default.resolve(customPath.trim()));
+    }
+    candidates.push(path_1.default.join(process.cwd(), 'SumatraPDF.exe'), path_1.default.join(__dirname, 'SumatraPDF.exe'), path_1.default.join(__dirname, '..', 'SumatraPDF.exe'), 'C:\\KaliportPrintAgent\\SumatraPDF.exe');
+    if (process.env.LOCALAPPDATA) {
+        candidates.push(path_1.default.join(process.env.LOCALAPPDATA, 'SumatraPDF', 'SumatraPDF.exe'));
+    }
+    candidates.push('C:\\Program Files\\SumatraPDF\\SumatraPDF.exe', 'C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe');
+    for (const candidate of candidates) {
+        if (candidate && fs_1.default.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+/**
+ * SumatraPDF CLI argümanlarını güvenli şekilde oluşturur.
+ * -print-to-default ASLA kullanılmaz; her zaman hedef yazıcı adı açıkça verilir.
+ */
+function buildSumatraPrintArgs(printerName, pdfPath, printSettings = 'noscale') {
+    const cleanPrinter = printerName.trim();
+    if (!cleanPrinter) {
+        throw new Error('Hedef yazıcı adı boş olamaz.');
+    }
+    const args = ['-print-to', cleanPrinter, '-silent'];
+    if (printSettings && printSettings.trim()) {
+        args.push('-print-settings', printSettings.trim());
+    }
+    args.push(pdfPath);
+    return args;
+}
+/**
+ * 2. Gerçek Windows Termal Yazıcı Sürücüsü (PALMX TXP 400 / Windows adı: 4BARCODE 4B-2054TG)
+ * Yalnızca Windows ortamında ve DRY_RUN=false iken SumatraPDF.exe CLI ile sessiz baskı yapar.
+ * GUI / Print Dialog açabilen Start-Process -Verb PrintTo fallback'i kesinlikle KALDIRILMIŞTIR.
  */
 class WindowsPrinterDriver {
     name;
     isDryRun = false;
     printerName;
-    constructor(printerName = '4BARCODE 4B-2054TG') {
+    sumatraPdfPath;
+    printSettings;
+    constructor(printerName = '4BARCODE 4B-2054TG', options) {
         this.printerName = printerName.trim();
-        this.name = `${this.printerName} (Windows Sürücüsü)`;
+        this.sumatraPdfPath = options?.sumatraPdfPath;
+        this.printSettings = options?.printSettings || 'noscale';
+        this.name = `${this.printerName} (Windows SumatraPDF Sessiz Sürücü)`;
     }
     /**
-     * Windows işletim sisteminde yazıcının kurulu olup olmadığını denetler.
+     * Windows işletim sisteminde yazıcının kurulu ve çevrimiçi (offline değil) olduğunu denetler.
      */
     async checkPrinterInstalled() {
         if (process.platform !== 'win32') {
             return { installed: false, error: 'Windows dışı platformda yazıcı denetlenemez.' };
         }
         try {
-            const psCommand = `Get-Printer -Name '${this.printerName.replace(/'/g, "''")}' | Select-Object -Property Name, PrinterStatus, PortName, DriverName | ConvertTo-Json -Compress`;
-            const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { timeout: 10000 });
+            const escapedName = this.printerName.replace(/'/g, "''");
+            const psCommand = `Get-Printer -Name '${escapedName}' | Select-Object -Property Name, PrinterStatus, WorkOffline, PortName, DriverName | ConvertTo-Json -Compress`;
+            const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], {
+                timeout: 10000,
+            });
             if (!stdout || stdout.trim().length === 0) {
                 return { installed: false, error: `Yazıcı bulunamadı: '${this.printerName}'` };
             }
-            return { installed: true, status: 'OK' };
+            try {
+                const parsed = JSON.parse(stdout.trim());
+                const printerStatus = String(parsed.PrinterStatus || '');
+                const isOffline = parsed.WorkOffline === true ||
+                    printerStatus.toLowerCase().includes('offline') ||
+                    printerStatus.toLowerCase().includes('error');
+                return {
+                    installed: true,
+                    offline: isOffline,
+                    status: printerStatus || 'Normal',
+                    ...(isOffline ? { error: `Yazıcı çevrimdışı veya hata durumunda (${printerStatus}).` } : {}),
+                };
+            }
+            catch {
+                return { installed: true, offline: false, status: 'OK' };
+            }
         }
         catch (err) {
             return {
                 installed: false,
                 error: `Windows yazıcı sorgusu başarısız: '${this.printerName}' bulunamadı veya erişilemedi (${err.message})`,
             };
+        }
+    }
+    /**
+     * Baskı gönderildikten sonra Windows Spooler kuyruğundaki son iş ID'sini sorgular (best-effort).
+     */
+    async queryLatestSpoolerJobId() {
+        if (process.platform !== 'win32')
+            return undefined;
+        try {
+            const escapedName = this.printerName.replace(/'/g, "''");
+            const psCommand = `Get-PrintJob -PrinterName '${escapedName}' -ErrorAction SilentlyContinue | Sort-Object -Property SubmittedTime -Descending | Select-Object -First 1 -Property Id, JobStatus | ConvertTo-Json -Compress`;
+            const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], {
+                timeout: 8000,
+            });
+            if (!stdout || !stdout.trim())
+                return undefined;
+            const parsed = JSON.parse(stdout.trim());
+            if (parsed && parsed.Id !== undefined && parsed.Id !== null) {
+                return String(parsed.Id);
+            }
+            return undefined;
+        }
+        catch {
+            return undefined;
         }
     }
     async printPdf(pdfBuffer, job) {
@@ -121,6 +201,7 @@ class WindowsPrinterDriver {
                 status: 'failed',
                 printed: false,
                 simulated: false,
+                printerName: this.printerName,
                 error: `WindowsPrinterDriver yalnızca Windows işletim sisteminde çalışır. Mevcut platform: ${process.platform}`,
                 errorCode: 'UNSUPPORTED_PLATFORM',
             };
@@ -132,80 +213,73 @@ class WindowsPrinterDriver {
                 status: 'failed',
                 printed: false,
                 simulated: false,
+                printerName: this.printerName,
                 error: 'Geçersiz veya bozuk PDF verisi.',
                 errorCode: 'INVALID_PDF_DATA',
             };
         }
-        // Geçici PDF dosyası oluştur
+        // 2. Yazıcı Varlık & Çevrimiçi Kontrolü
+        const printerCheck = await this.checkPrinterInstalled();
+        if (!printerCheck.installed) {
+            return {
+                success: false,
+                status: 'failed',
+                printed: false,
+                simulated: false,
+                printerName: this.printerName,
+                error: printerCheck.error || `Hedef yazıcı bulunamadı: ${this.printerName}`,
+                errorCode: 'PRINTER_NOT_FOUND',
+            };
+        }
+        if (printerCheck.offline) {
+            return {
+                success: false,
+                status: 'failed',
+                printed: false,
+                simulated: false,
+                printerName: this.printerName,
+                error: printerCheck.error || `Hedef yazıcı çevrimdışı: ${this.printerName}`,
+                errorCode: 'PRINTER_OFFLINE',
+            };
+        }
+        // 3. SumatraPDF.exe Tespiti (GUI açan PrintTo fallback KESİNLİKLE YOK)
+        const sumatraExe = resolveSumatraPdfExecutable(this.sumatraPdfPath) || 'SumatraPDF.exe';
         const tempDir = os_1.default.tmpdir();
-        const tempPdfPath = path_1.default.join(tempDir, `print_${job.jobId || 'job'}_${Date.now()}.pdf`);
+        const safeId = (job.jobId || 'job').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const tempPdfPath = path_1.default.join(tempDir, `print_${safeId}_${Date.now()}.pdf`);
         try {
             fs_1.default.writeFileSync(tempPdfPath, pdfBuffer);
-            // Windows Spooler / PDF Yazdırma Seçenekleri Sırasıyla:
-            // 1. SumatraPDF.exe -print-to "<printerName>" -print-settings "shrink" -silent "<pdfPath>"
-            // 2. PDFtoPrinter.exe "<pdfPath>" "<printerName>"
-            // 3. PowerShell Fallback: Start-Process -Verb PrintTo
-            let printedOk = false;
-            let lastErrMsg = '';
-            // A. SumatraPDF kontrolü (Varsa en stabil ve sessiz çalışan termal yazdırma aracı)
+            const args = buildSumatraPrintArgs(this.printerName, tempPdfPath, this.printSettings);
+            console.log(`[PRINT-DRIVER] Print process started: "${sumatraExe}" -print-to "${this.printerName}" -silent -print-settings "${this.printSettings}"`);
             try {
-                await execFileAsync('SumatraPDF.exe', [
-                    '-print-to',
-                    this.printerName,
-                    '-print-settings',
-                    'shrink',
-                    '-silent',
-                    tempPdfPath,
-                ], { timeout: 30000 });
-                printedOk = true;
+                await execFileAsync(sumatraExe, args, { timeout: 30000 });
             }
             catch (sumatraErr) {
-                lastErrMsg = `SumatraPDF: ${sumatraErr.message}`;
-            }
-            // B. PDFtoPrinter kontrolü (Sumatra yoksa)
-            if (!printedOk) {
-                try {
-                    await execFileAsync('PDFtoPrinter.exe', [
-                        tempPdfPath,
-                        this.printerName,
-                    ], { timeout: 30000 });
-                    printedOk = true;
-                }
-                catch (pdfToPrinterErr) {
-                    lastErrMsg = `PDFtoPrinter: ${pdfToPrinterErr.message}`;
-                }
-            }
-            // C. PowerShell Fallback (Yerel PDF ilişkilendiricisi ile)
-            if (!printedOk) {
-                try {
-                    const psCommand = `Start-Process -FilePath '${tempPdfPath.replace(/'/g, "''")}' -Verb PrintTo -ArgumentList '${this.printerName.replace(/'/g, "''")}' -PassThru | Wait-Process -Timeout 30`;
-                    await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { timeout: 35000 });
-                    printedOk = true;
-                }
-                catch (psErr) {
-                    lastErrMsg = `PowerShell Fallback: ${psErr.message}`;
-                }
-            }
-            if (!printedOk) {
+                const isNotFound = sumatraErr?.code === 'ENOENT' ||
+                    String(sumatraErr?.message || '').toLowerCase().includes('enoent');
                 return {
                     success: false,
                     status: 'failed',
                     printed: false,
                     simulated: false,
-                    error: `Yazıcıya gönderme başarısız oldu (${this.printerName}). Hata: ${lastErrMsg}. Lütfen SumatraPDF.exe veya PDFtoPrinter.exe aracının kurulu ve PATH üzerinde olduğunu teyit edin.`,
-                    errorCode: 'PRINT_SPOOLER_ERROR',
+                    printerName: this.printerName,
+                    error: isNotFound
+                        ? `SumatraPDF.exe bulunamadı (${sumatraExe}). Sessiz yazdırma için SumatraPDF.exe C:\\KaliportPrintAgent\\SumatraPDF.exe konumuna yerleştirilmelidir. GUI açan PrintTo fallback güvenlik gereği devre dışıdır.`
+                        : `SumatraPDF sessiz baskı başarısız (${this.printerName}): ${sumatraErr.message}`,
+                    errorCode: isNotFound ? 'SUMATRA_NOT_FOUND' : 'SUMATRA_PRINT_ERROR',
                 };
             }
-            // ÖNEMLİ TEKNİK NOT (Spooler vs Fiziksel Çıktı):
-            // Windows spooler'ın baskı isteğini başarıyla kabul etmesi (printedOk=true),
-            // kâğıdın fiziksel olarak termal yazıcıdan çıktığını garanti etmez.
-            // Yazıcıda kâğıt bitmiş, kapak açık veya USB kablosu temassız olabilir.
-            // Bu, Windows yazdırma mimarisinin (GDI Spooler) genel bir doğasıdır.
+            const submittedToSpoolerAt = new Date().toISOString();
+            const spoolerJobId = await this.queryLatestSpoolerJobId();
+            console.log(`[PRINT-DRIVER] Submitted to Windows spooler: printer="${this.printerName}" spoolerJobId=${spoolerJobId || 'N/A'}`);
             return {
                 success: true,
                 status: 'printed',
                 printed: true,
                 simulated: false,
+                printerName: this.printerName,
+                spoolerJobId,
+                submittedToSpoolerAt,
             };
         }
         catch (err) {
@@ -214,12 +288,12 @@ class WindowsPrinterDriver {
                 status: 'failed',
                 printed: false,
                 simulated: false,
+                printerName: this.printerName,
                 error: `Yazdırma işlemi sırasında beklenmeyen hata: ${err.message}`,
                 errorCode: 'PRINT_EXECUTION_ERROR',
             };
         }
         finally {
-            // Geçici dosyayı diskten temizle
             if (fs_1.default.existsSync(tempPdfPath)) {
                 try {
                     fs_1.default.unlinkSync(tempPdfPath);
@@ -236,14 +310,15 @@ exports.WindowsPrinterDriver = WindowsPrinterDriver;
  * Konfigürasyona ve ortama göre uygun yazıcı sürücüsünü fabrikalar.
  */
 function createPrinterDriver(config) {
-    // Zorunlu Simülasyon Koruması: DRY_RUN=true veya Windows dışı platform
     if (config.dryRun || process.platform !== 'win32') {
         return new SimulatedPrinterDriver(config.outputDir);
     }
-    // KRİTİK GÜVENLİK: dryRun=false + win32 iken PRINTER_NAME zorunludur
     const printerName = (config.printerName || '').trim();
     if (!printerName) {
         throw new Error('Gerçek baskı modu (dryRun=false) için PRINTER_NAME yapılandırması zorunludur. Agent başlatılamaz.');
     }
-    return new WindowsPrinterDriver(printerName);
+    return new WindowsPrinterDriver(printerName, {
+        sumatraPdfPath: config.sumatraPdfPath,
+        printSettings: config.printSettings || 'noscale',
+    });
 }

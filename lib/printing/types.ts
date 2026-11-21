@@ -1,12 +1,22 @@
 export type PrintJobType = 'shipping_label' | 'no_orders_notice'
-export type PrintJobStatus = 'pending' | 'processing' | 'printed' | 'failed' | 'simulated'
+export type PrintJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'printed'
+  | 'failed'
+  | 'simulated'
+  | 'manual_review'
 
 export interface AckPrintJobBody {
-  status: 'printed' | 'failed' | 'simulated'
+  status: 'printed' | 'failed' | 'simulated' | 'manual_review'
   isDryRun?: boolean
   errorCode?: string
   errorMessage?: string
   simulatedOutputPath?: string
+  spoolerJobId?: string
+  printerName?: string
+  agentVersion?: string
+  submittedToSpoolerAt?: string
 }
 
 export interface PrintJobError {
@@ -40,6 +50,10 @@ export interface PrintJob {
     totalChecked?: number
     customerDeliveryNo?: string
     simulatedOutputPath?: string
+    spoolerJobId?: string
+    printerName?: string
+    agentVersion?: string
+    submittedToSpoolerAt?: string
   }
 }
 
@@ -52,6 +66,9 @@ export interface PrintAgent {
   printerId: string
   createdAt: string
   lastSeenAt?: string
+  lastHeartbeatAt?: string
+  online?: boolean
+  agentVersion?: string
   description?: string
 }
 

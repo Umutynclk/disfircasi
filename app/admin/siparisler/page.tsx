@@ -1170,17 +1170,9 @@ export default function OrdersPage() {
             // 3. Oturum Yeni Sipariş Sayacı
             setSessionNewOrderCount((prev) => prev + newlyAdded.length)
 
-            // 4. İsteğe bağlı otomatik fiş önizleme
-            if (autoPrintPromptRef.current) {
-              setPrintingOrder(newest)
-              setTimeout(() => {
-                try {
-                  window.print()
-                } catch (printErr) {
-                  console.warn('Otomatik yazdırma uyarısı:', printErr)
-                }
-              }, 600)
-            }
+            // NOT: Tarayıcı üzerinden otomatik window.print() tetiklemesi KALDIRILDI.
+            // Otomatik barkod ve sipariş fişi baskısı yalnızca sunucu tarafında doğrulanan
+            // paymentStatus === 'PAID' sonrası print_queue -> Windows Print Agent üzerinden yapılır.
           }
         }
 
@@ -1545,19 +1537,15 @@ export default function OrdersPage() {
             )}
           </button>
 
-          {/* Auto Print Prompt Toggle */}
-          <button
-            onClick={toggleAutoPrintPrompt}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-              autoPrintPrompt
-                ? 'bg-sky-50 text-sky-700 border-sky-300 font-bold'
-                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-            }`}
-            title="Açıkken sayfaya yeni sipariş düştüğünde otomatik fiş yazdırma ekranı açılır"
+          {/* Print Agent Status Link (Browser auto-print disabled) */}
+          <a
+            href="/admin/ayarlar?tab=print_agent"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 transition-colors"
+            title="Otomatik baskı tarayıcıdan değil, sunucu print_queue ve Windows Print Agent üzerinden yürütülür"
           >
             <FiPrinter className="w-3.5 h-3.5" />
-            <span>{autoPrintPrompt ? 'Oto-Fiş Açık' : 'Oto-Fiş Kapalı'}</span>
-          </button>
+            <span>Oto-Baskı: Print Agent</span>
+          </a>
 
           {/* Sound Notification Toggle */}
           <button
@@ -2352,7 +2340,7 @@ export default function OrdersPage() {
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">{formatDate(order.createdAt)}</p>
                       {order.shipping?.barcode && (
-                        <div className="mt-1">
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span
                             className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200"
                             title={`HepsiJET Kargo Barkodu: ${order.shipping.barcode}`}
@@ -2360,6 +2348,31 @@ export default function OrdersPage() {
                             <FiTruck className="w-3 h-3 text-orange-600" />
                             {order.shipping.barcode}
                           </span>
+                          {(() => {
+                            const ps = (order.shipping as any)?.printStatus as string | undefined
+                            const pErr = (order.shipping as any)?.printError as string | undefined
+                            if (!ps) return null
+                            const badgeMap: Record<string, { label: string; cls: string }> = {
+                              queued: { label: 'Baskı Bekliyor', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+                              pending: { label: 'Baskı Bekliyor', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+                              processing: { label: 'Yazıcıya Gönderiliyor', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+                              printed: { label: 'Yazdırıldı', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                              failed: { label: 'Yazdırma Başarısız', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+                              manual_review: { label: 'Manuel Kontrol Gerekiyor', cls: 'bg-amber-50 text-amber-800 border-amber-300' },
+                              simulated: { label: 'Simülasyon Baskı', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+                            }
+                            const info = badgeMap[ps]
+                            if (!info) return null
+                            return (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${info.cls}`}
+                                title={pErr ? `Hata: ${pErr}` : `Baskı Durumu: ${info.label}`}
+                              >
+                                <FiPrinter className="w-2.5 h-2.5" />
+                                {info.label}
+                              </span>
+                            )
+                          })()}
                         </div>
                       )}
                       {!order.shipping?.barcode && order.shipping?.automationStatus === 'ready' && (
@@ -3591,6 +3604,8 @@ export default function OrdersPage() {
                         html, body {
                           width: ${totalW}mm !important;
                           height: ${totalH}mm !important;
+                          max-height: ${totalH}mm !important;
+                          overflow: hidden !important;
                           margin: 0 !important;
                           padding: 0 !important;
                           background: #fff !important;

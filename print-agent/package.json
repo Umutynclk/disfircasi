@@ -1,7 +1,7 @@
 {
   "name": "kaliport-print-agent",
-  "version": "1.0.0",
-  "description": "KALIPORT PALMX TXP 400 Windows Termal Barkod Yazıcı Agent Servisi",
+  "version": "2.0.0",
+  "description": "KALIPORT PALMX TXP 400 Windows Termal Barkod Yazıcı Agent Servisi (SumatraPDF Sessiz Baskı + Spooler Doğrulama)",
   "private": true,
   "main": "dist/index.js",
   "scripts": {

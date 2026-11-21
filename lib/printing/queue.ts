@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { getAdminFirestore } from '@/lib/firebase/admin'
 import { isSampleBarcode } from '@/lib/hepsijet/sampleLabel'
+import { removeUndefined } from '@/lib/utils/firestoreSanitize'
 import { PrintJob, PrintJobType, PrintJobStatus, AckPrintJobBody } from './types'
 
 const QUEUE_COLLECTION = 'print_queue'
@@ -101,17 +102,17 @@ export async function queueShippingLabelJob(
         }
       }
 
-      // Önceden başarısız olmuşsa ve retry istenmişse sıfırla
-      if (existing.status === 'failed' && options?.retryIfFailed) {
-        const resetJob: PrintJob = {
+      // Önceden başarısız veya manuel kontrolde olmuşsa ve açıkça retry istenmişse sıfırla
+      if ((existing.status === 'failed' || existing.status === 'manual_review') && options?.retryIfFailed) {
+        const resetJob = removeUndefined({
           ...existing,
-          status: 'pending',
+          status: 'pending' as PrintJobStatus,
           attemptCount: 0,
           updatedAt: now,
           lockedBy: undefined,
           lockedAt: undefined,
           leaseExpiresAt: undefined,
-        }
+        }) as PrintJob
         transaction.set(jobRef, resetJob)
         const orderRef = db.collection('orders').doc(order.id)
         transaction.update(orderRef, {
@@ -230,7 +231,11 @@ export async function queueNoOrdersNoticeJob(
 
 /**
  * Windows Agent için sıradaki bekleyen işi atomik olarak talep eder ve kilitler (Claim / Lease).
- * Eşzamanlı iki agent'ın aynı işi almasını Firestore transaction ile kesinlikle engeller.
+ * - Eşzamanlı iki agent'ın aynı işi almasını Firestore transaction ile kesinlikle engeller.
+ * - Aynı fiziksel yazıcı (printerId) için hâlihazırda aktif (lease dolmamış) bir processing iş varsa
+ *   yeni iş verilmez (tek yazıcıda aynı anda yalnızca 1 baskı).
+ * - Lease süresi dolmuş ama maxAttempts sınırını aşmış işler bir daha claim edilmez;
+ *   mükerrer baskı riskini önlemek için 'manual_review' durumuna çekilir.
  */
 export async function claimNextPrintJobServer(
   agentId: string,
@@ -238,8 +243,29 @@ export async function claimNextPrintJobServer(
 ): Promise<PrintJob | null> {
   const db = getAdminFirestore()
   const now = Date.now()
+  const targetPrinter = (printerId || '').trim()
 
-  // 1. Önce bekleyen veya zaman aşımına uğramış aday işleri sorgula
+  // 0. Aynı fiziksel yazıcıda hâlihazırda aktif (lease'i dolmamış) bir processing iş var mı kontrol et
+  const activeProcessingSnap = await db
+    .collection(QUEUE_COLLECTION)
+    .where('status', '==', 'processing')
+    .limit(10)
+    .get()
+
+  for (const procDoc of activeProcessingSnap.docs) {
+    const procData = procDoc.data() as PrintJob
+    const isLeaseActive =
+      typeof procData.leaseExpiresAt === 'number' && procData.leaseExpiresAt > now
+
+    if (isLeaseActive) {
+      const samePrinter = !targetPrinter || !procData.printerId || procData.printerId === targetPrinter
+      if (samePrinter) {
+        return null
+      }
+    }
+  }
+
+  // 1. Önce bekleyen (FIFO: createdAt asc) işleri sorgula
   const pendingSnap = await db
     .collection(QUEUE_COLLECTION)
     .where('status', '==', 'pending')
@@ -265,8 +291,8 @@ export async function claimNextPrintJobServer(
   }
 
   // 2. İlk uygun adayı transaction ile atomik olarak kilitle
-  for (const doc of candidateDocs) {
-    const jobRef = doc.ref
+  for (const docSnap of candidateDocs) {
+    const jobRef = docSnap.ref
     try {
       const claimedJob = await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(jobRef)
@@ -274,6 +300,7 @@ export async function claimNextPrintJobServer(
 
         const data = snap.data() as PrintJob
         const currentNow = Date.now()
+        const nowIso = new Date(currentNow).toISOString()
 
         // İşi hala alabilir durumda mıyız?
         const isPending = data.status === 'pending'
@@ -283,24 +310,65 @@ export async function claimNextPrintJobServer(
           data.leaseExpiresAt <= currentNow
 
         if (!isPending && !isStaleProcessing) {
-          // Başka bir agent almış
           return null
         }
 
-        const newAttemptCount = (data.attemptCount || 0) + 1
+        const currentAttempts = data.attemptCount || 0
+        const maxAttempts = data.maxAttempts || MAX_PRINT_ATTEMPTS
+
+        // KRİTİK KORUMA: Azami deneme sınırını aşmış (veya spooler'a gönderilip ACK kaybolmuş)
+        // işler bir daha otomatik claim EDİLMEZ -> manual_review durumuna alınır.
+        if (currentAttempts >= maxAttempts) {
+          const reviewJob = removeUndefined({
+            ...data,
+            status: 'manual_review' as PrintJobStatus,
+            updatedAt: nowIso,
+            lockedBy: undefined,
+            lockedAt: undefined,
+            leaseExpiresAt: undefined,
+            lastError: {
+              code: 'MAX_ATTEMPTS_EXCEEDED_STALE_LEASE',
+              message: `İş ${currentAttempts}/${maxAttempts} denemeye ulaştı ve onay (ACK) alınamadı. Mükerrer baskıyı önlemek için yönetici incelemesine alındı.`,
+              timestamp: nowIso,
+            },
+          }) as PrintJob
+
+          transaction.set(jobRef, reviewJob)
+          if (data.orderId) {
+            const orderRef = db.collection('orders').doc(data.orderId)
+            transaction.update(orderRef, {
+              'shipping.printStatus': 'manual_review',
+              'shipping.printError': reviewJob.lastError?.message || 'Manuel kontrol gerekiyor',
+              updatedAt: nowIso,
+            })
+          }
+          return null
+        }
+
+        const newAttemptCount = currentAttempts + 1
         const leaseExpiresAt = currentNow + LEASE_DURATION_MS
 
-        const updatedJob: PrintJob = {
+        const updatedJob = removeUndefined({
           ...data,
-          status: 'processing',
+          status: 'processing' as PrintJobStatus,
           lockedBy: agentId,
           lockedAt: currentNow,
           leaseExpiresAt,
           attemptCount: newAttemptCount,
-          updatedAt: new Date(currentNow).toISOString(),
-        }
+          updatedAt: nowIso,
+        }) as PrintJob
 
         transaction.set(jobRef, updatedJob)
+
+        if (data.orderId) {
+          const orderRef = db.collection('orders').doc(data.orderId)
+          transaction.update(orderRef, {
+            'shipping.printStatus': 'processing',
+            'shipping.printAttemptCount': newAttemptCount,
+            updatedAt: nowIso,
+          })
+        }
+
         return updatedJob
       })
 
@@ -308,7 +376,7 @@ export async function claimNextPrintJobServer(
         return claimedJob
       }
     } catch (err) {
-      console.warn(`claimNextPrintJob candidate ${doc.id} transaction race, retrying next:`, err)
+      console.warn(`claimNextPrintJob candidate ${docSnap.id} transaction race, retrying next:`, err)
     }
   }
 
@@ -347,22 +415,28 @@ export async function ackPrintJobServer(
       )
     }
 
+    const extraMeta = removeUndefined({
+      ...(job.metadata || {}),
+      ...(result.simulatedOutputPath ? { simulatedOutputPath: result.simulatedOutputPath } : {}),
+      ...(result.spoolerJobId ? { spoolerJobId: result.spoolerJobId } : {}),
+      ...(result.printerName ? { printerName: result.printerName } : {}),
+      ...(result.agentVersion ? { agentVersion: result.agentVersion } : {}),
+      ...(result.submittedToSpoolerAt ? { submittedToSpoolerAt: result.submittedToSpoolerAt } : {}),
+    })
+
     // 1. SİMÜLASYON TAMAMLANDI BİLDİRİMİ
     if (result.status === 'simulated') {
-      const updatedJob: PrintJob = {
+      const updatedJob = removeUndefined({
         ...job,
-        status: 'simulated',
+        status: 'simulated' as PrintJobStatus,
         simulatedAt: now,
         isDryRun: true,
         updatedAt: now,
         lockedBy: undefined,
         lockedAt: undefined,
         leaseExpiresAt: undefined,
-        metadata: {
-          ...(job.metadata || {}),
-          ...(result.simulatedOutputPath ? { simulatedOutputPath: result.simulatedOutputPath } : {}),
-        },
-      }
+        metadata: extraMeta,
+      }) as PrintJob
 
       transaction.set(jobRef, updatedJob)
 
@@ -383,18 +457,54 @@ export async function ackPrintJobServer(
       }
     }
 
+    // 1.5. MANUEL KONTROL GEREKİYOR (Belirsiz sonuç / mükerrer baskı koruması)
+    if (result.status === 'manual_review') {
+      const updatedJob = removeUndefined({
+        ...job,
+        status: 'manual_review' as PrintJobStatus,
+        updatedAt: now,
+        lockedBy: undefined,
+        lockedAt: undefined,
+        leaseExpiresAt: undefined,
+        metadata: extraMeta,
+        lastError: {
+          code: result.errorCode || 'MANUAL_REVIEW_REQUIRED',
+          message: result.errorMessage || 'Baskı sonucu belirsiz; mükerrer baskıyı önlemek için yönetici kontrolü gerekiyor.',
+          timestamp: now,
+        },
+      }) as PrintJob
+
+      transaction.set(jobRef, updatedJob)
+
+      if (job.orderId) {
+        const orderRef = db.collection('orders').doc(job.orderId)
+        transaction.update(orderRef, {
+          'shipping.printStatus': 'manual_review',
+          'shipping.printError': updatedJob.lastError?.message || 'Manuel kontrol gerekiyor',
+          updatedAt: now,
+        })
+      }
+
+      return {
+        success: true,
+        job: updatedJob,
+        message: 'İş mükerrer baskı koruması nedeniyle yönetici incelemesine alındı.',
+      }
+    }
+
     // 2. GERÇEK FİZİKSEL BASKI BİLDİRİMİ (Yalnızca Windows ve dryRun=false)
     if (result.status === 'printed') {
-      const updatedJob: PrintJob = {
+      const updatedJob = removeUndefined({
         ...job,
-        status: 'printed',
+        status: 'printed' as PrintJobStatus,
         printedAt: now,
         isDryRun: false,
         updatedAt: now,
         lockedBy: undefined,
         lockedAt: undefined,
         leaseExpiresAt: undefined,
-      }
+        metadata: extraMeta,
+      }) as PrintJob
 
       transaction.set(jobRef, updatedJob)
 
@@ -404,6 +514,8 @@ export async function ackPrintJobServer(
         transaction.update(orderRef, {
           'shipping.printStatus': 'printed',
           'shipping.printedAt': now,
+          'shipping.printError': null,
+          ...(result.spoolerJobId ? { 'shipping.spoolerJobId': result.spoolerJobId } : {}),
           updatedAt: now,
         })
       }
@@ -418,27 +530,29 @@ export async function ackPrintJobServer(
       const attempts = job.attemptCount || 1
       const isPermanentlyFailed = attempts >= (job.maxAttempts || MAX_PRINT_ATTEMPTS)
 
-      const updatedJob: PrintJob = {
+      const updatedJob = removeUndefined({
         ...job,
-        status: isPermanentlyFailed ? 'failed' : 'pending', // Yeniden denenebilir mi?
+        status: (isPermanentlyFailed ? 'failed' : 'pending') as PrintJobStatus,
         updatedAt: now,
         lockedBy: undefined,
         lockedAt: undefined,
         leaseExpiresAt: undefined,
+        metadata: extraMeta,
         lastError: {
           code: result.errorCode || 'PRINT_FAILED',
           message: result.errorMessage || 'Yazıcı çıktısı alınamadı.',
           timestamp: now,
         },
-      }
+      }) as PrintJob
 
       transaction.set(jobRef, updatedJob)
 
-      if (job.orderId && isPermanentlyFailed) {
+      if (job.orderId) {
         const orderRef = db.collection('orders').doc(job.orderId)
         transaction.update(orderRef, {
-          'shipping.printStatus': 'failed',
+          'shipping.printStatus': isPermanentlyFailed ? 'failed' : 'queued',
           'shipping.printError': result.errorMessage || 'Yazdırma başarısız',
+          'shipping.printErrorCode': result.errorCode || 'PRINT_FAILED',
           updatedAt: now,
         })
       }
@@ -599,6 +713,7 @@ export async function getPrintQueueStatsServer(): Promise<{
   printed: number
   simulated: number
   failed: number
+  manual_review: number
   total: number
 }> {
   const db = getAdminFirestore()
@@ -609,6 +724,7 @@ export async function getPrintQueueStatsServer(): Promise<{
     printed: 0,
     simulated: 0,
     failed: 0,
+    manual_review: 0,
     total: snap.size,
   }
 

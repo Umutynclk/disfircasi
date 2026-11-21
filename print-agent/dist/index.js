@@ -31,6 +31,9 @@ function loadConfig() {
         pollIntervalMs: process.env.PRINT_POLL_INTERVAL_MS ? Number(process.env.PRINT_POLL_INTERVAL_MS) : fileConfig.pollIntervalMs,
         dryRun: process.env.DRY_RUN !== undefined ? process.env.DRY_RUN !== 'false' : fileConfig.dryRun,
         outputDir: process.env.PRINT_OUTPUT_DIR || fileConfig.outputDir,
+        sumatraPdfPath: process.env.SUMATRA_PDF_PATH || fileConfig.sumatraPdfPath,
+        printSettings: process.env.PRINT_SETTINGS || fileConfig.printSettings,
+        stateFilePath: process.env.PRINT_STATE_FILE_PATH || fileConfig.stateFilePath,
     };
 }
 /**

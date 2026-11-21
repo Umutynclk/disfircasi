@@ -1,9 +1,22 @@
+import fs from 'fs'
+import path from 'path'
 import type { PrintJob } from './types'
-import { PrintAgentConfig, PrinterDriver } from './types'
+import { PrintAgentConfig, PrinterDriver, PRINT_AGENT_VERSION } from './types'
 import { createPrinterDriver } from './printer'
 
+interface LocalSentRecord {
+  jobId: string
+  printerName: string
+  spoolerJobId?: string
+  submittedAt: string
+}
+
 /**
- * KALIPORT PALMX TXP 400 Windows Print Agent Servisi
+ * KALIPORT PALMX TXP 400 Windows Print Agent Servisi (v2.0.0)
+ * - 5 saniyelik polling, tek yazıcı tek iş sırası (FIFO)
+ * - SumatraPDF sessiz baskı + Windows spooler doğrulama
+ * - Yerel sent_jobs defteri ile ACK kaybında mükerrer baskı engelleme
+ * - ACK retry mekanizması
  */
 export class PrintAgentService {
   private config: PrintAgentConfig
@@ -12,6 +25,8 @@ export class PrintAgentService {
   private isProcessing = false
   private pollTimer: NodeJS.Timeout | null = null
   private currentBackoffMs: number
+  private sentJobsMap: Map<string, LocalSentRecord> = new Map()
+  private stateFilePath: string
 
   constructor(config: Partial<PrintAgentConfig> = {}, customDriver?: PrinterDriver) {
     this.config = {
@@ -22,10 +37,16 @@ export class PrintAgentService {
       pollIntervalMs: config.pollIntervalMs || Number(process.env.PRINT_POLL_INTERVAL_MS) || 5000,
       errorBackoffMs: config.errorBackoffMs || 10000,
       maxBackoffMs: config.maxBackoffMs || 30000,
-      // Zorunlu Simülasyon Koruması: DRY_RUN varsayılan olarak true'dur
       dryRun: config.dryRun !== undefined ? config.dryRun : process.env.DRY_RUN !== 'false',
       outputDir: config.outputDir || process.env.PRINT_OUTPUT_DIR || './simulated_prints',
+      sumatraPdfPath: config.sumatraPdfPath || process.env.SUMATRA_PDF_PATH,
+      printSettings: config.printSettings || process.env.PRINT_SETTINGS || 'noscale',
+      stateFilePath: config.stateFilePath || process.env.PRINT_STATE_FILE_PATH,
     }
+
+    this.stateFilePath =
+      this.config.stateFilePath || path.resolve(process.cwd(), 'logs', 'sent_jobs.json')
+    this.loadLocalSentLedger()
 
     this.currentBackoffMs = this.config.errorBackoffMs
     this.driver = customDriver || createPrinterDriver(this.config)
@@ -39,12 +60,43 @@ export class PrintAgentService {
     return this.driver
   }
 
+  private loadLocalSentLedger() {
+    try {
+      if (fs.existsSync(this.stateFilePath)) {
+        const raw = fs.readFileSync(this.stateFilePath, 'utf-8')
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          for (const rec of parsed) {
+            if (rec?.jobId) this.sentJobsMap.set(rec.jobId, rec)
+          }
+        }
+      }
+    } catch {
+      // İlk kurulum veya okunamayan yerel dosya: temiz başla
+    }
+  }
+
+  private recordJobSentLocally(record: LocalSentRecord) {
+    this.sentJobsMap.set(record.jobId, record)
+    try {
+      const dir = path.dirname(this.stateFilePath)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      // Son 500 kaydı sakla
+      const entries = Array.from(this.sentJobsMap.values()).slice(-500)
+      fs.writeFileSync(this.stateFilePath, JSON.stringify(entries, null, 2), 'utf-8')
+    } catch {
+      // Disk yazma hatası baskıyı bloklamasın
+    }
+  }
+
   /**
    * Güvenli log yardımcısı: Token veya kişisel verileri maskeler.
    */
   private log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
     const time = new Date().toLocaleTimeString('tr-TR')
-    const prefix = `[PRINT-AGENT ${time}]`
+    const prefix = `[PRINT-AGENT v${PRINT_AGENT_VERSION} ${time}]`
     if (level === 'error') {
       console.error(`${prefix} ❌ ${message}`)
     } else if (level === 'warn') {
@@ -54,9 +106,6 @@ export class PrintAgentService {
     }
   }
 
-  /**
-   * HTTP Yetkilendirme Başlıkları
-   */
   private getHeaders(): Record<string, string> {
     return {
       'X-Print-Agent-Id': this.config.agentId,
@@ -68,7 +117,6 @@ export class PrintAgentService {
 
   /**
    * Tek bir yoklama (poll) döngüsü çalıştırır.
-   * Test edilebilir ve birim testlerinde doğrudan çağrılabilir.
    */
   async pollOnce(): Promise<{ handledJob: boolean; jobId?: string; error?: string }> {
     if (this.isProcessing) {
@@ -81,7 +129,10 @@ export class PrintAgentService {
       const pollRes = await fetch(`${this.config.apiUrl}/api/print-agent/jobs/poll`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ printerId: this.config.printerName }),
+        body: JSON.stringify({
+          printerId: this.config.printerName,
+          agentVersion: PRINT_AGENT_VERSION,
+        }),
       })
 
       if (!pollRes.ok) {
@@ -97,12 +148,32 @@ export class PrintAgentService {
       const job = pollData.job
 
       if (!job) {
-        // Bekleyen iş yok, normal bekleme
         this.currentBackoffMs = this.config.errorBackoffMs
         return { handledJob: false }
       }
 
       this.log(`Yeni iş alındı: ${job.jobId} (Tür: ${job.type}, Deneme: ${job.attemptCount})`)
+
+      // 1.5. MÜKERRER BASKI KORUMASI (Yerel Spooler Defteri):
+      // Eğer bu job daha önce bu agent tarafından fiziksel yazıcıya başarıyla gönderildiyse
+      // ama ACK kaybolduğu için lease düşüp tekrar geldiyse ASLA ikinci kez basma -> manual_review!
+      if (!this.driver.isDryRun && this.sentJobsMap.has(job.jobId)) {
+        const prev = this.sentJobsMap.get(job.jobId)!
+        this.log(
+          `Mükerrer baskı engellendi: ${job.jobId} daha önce ${prev.submittedAt} tarihinde yazıcıya gönderilmiş (spoolerJobId=${prev.spoolerJobId || 'N/A'}). manual_review bildiriliyor.`,
+          'warn'
+        )
+        await this.ackJobWithRetry(job.jobId, {
+          status: 'manual_review',
+          isDryRun: false,
+          errorCode: 'DUPLICATE_PRINT_PREVENTED_LOCAL_LEDGER',
+          errorMessage: `Bu iş daha önce (${prev.submittedAt}) yazıcıya gönderildi ancak ACK ulaşmamıştı. Çift baskıyı önlemek için yönetici incelemesine alındı.`,
+          spoolerJobId: prev.spoolerJobId,
+          printerName: prev.printerName,
+          agentVersion: PRINT_AGENT_VERSION,
+        })
+        return { handledJob: true, jobId: job.jobId, error: 'DUPLICATE_PRINT_PREVENTED' }
+      }
 
       // 2. İş PDF'sini İndir
       const pdfRes = await fetch(`${this.config.apiUrl}/api/print-agent/jobs/${encodeURIComponent(job.jobId)}/pdf`, {
@@ -117,11 +188,13 @@ export class PrintAgentService {
         const errBody = await pdfRes.text().catch(() => '')
         this.log(`İş PDF'i indirilemedi (${job.jobId}): HTTP ${pdfRes.status} ${errBody}`, 'error')
 
-        // Başarısızlığı sunucuya bildir
-        await this.ackJob(job.jobId, {
+        await this.ackJobWithRetry(job.jobId, {
           status: 'failed',
+          isDryRun: this.driver.isDryRun,
           errorCode: `PDF_FETCH_HTTP_${pdfRes.status}`,
           errorMessage: 'PDF indirme isteği başarısız oldu.',
+          printerName: this.config.printerName,
+          agentVersion: PRINT_AGENT_VERSION,
         })
 
         return { handledJob: true, jobId: job.jobId, error: 'PDF_DOWNLOAD_FAILED' }
@@ -129,38 +202,56 @@ export class PrintAgentService {
 
       const arrayBuffer = await pdfRes.arrayBuffer()
       const pdfBuffer = Buffer.from(arrayBuffer)
+      this.log(`PDF downloaded: ${job.jobId} (${pdfBuffer.length} bytes)`)
 
-      // 3. Yazıcı Sürücüsüne Gönder (Simülasyon veya Gerçek Windows Yazıcı)
+      // 3. Yazıcı Sürücüsüne Gönder
+      this.log(`Print process started: ${job.jobId} -> ${this.config.printerName}`)
       const printResult = await this.driver.printPdf(pdfBuffer, job)
+      this.log(
+        `Print process result: ${job.jobId} success=${printResult.success} status=${printResult.status} spoolerJobId=${printResult.spoolerJobId || 'N/A'}`
+      )
 
-      // 4. Sonucu Sunucuya Bildir (Ack) — Simülasyon ve gerçek baskı kesin olarak ayrılır
+      // 4. Sonucu Sunucuya Bildir (Ack + Retry)
       if (printResult.success) {
         if (printResult.simulated) {
-          // SİMÜLASYON: Sunucuya 'simulated' bildirimi + isDryRun=true
-          // Bu ASLA üretim kuyruğundaki işi 'printed' yapamaz
-          await this.ackJob(job.jobId, {
+          await this.ackJobWithRetry(job.jobId, {
             status: 'simulated',
             isDryRun: true,
             simulatedOutputPath: printResult.outputPath,
+            printerName: this.config.printerName,
+            agentVersion: PRINT_AGENT_VERSION,
           })
-          this.log(`Simülasyon tamamlandı: ${job.jobId} (PDF diske yazıldı, fiziksel baskı YAPILMADI)`)
+          this.log(`ACK sent (simulated): ${job.jobId}`)
         } else {
-          // GERÇEK BASKI: Yalnızca Windows spooler başarılı kabul ettiğinde
-          await this.ackJob(job.jobId, {
+          // Gerçek baskı spooler'a iletildi -> yerel deftere kaydet (ACK kaybolursa çift baskıyı önler)
+          this.recordJobSentLocally({
+            jobId: job.jobId,
+            printerName: printResult.printerName || this.config.printerName,
+            spoolerJobId: printResult.spoolerJobId,
+            submittedAt: printResult.submittedToSpoolerAt || new Date().toISOString(),
+          })
+
+          await this.ackJobWithRetry(job.jobId, {
             status: 'printed',
             isDryRun: false,
+            spoolerJobId: printResult.spoolerJobId,
+            printerName: printResult.printerName || this.config.printerName,
+            agentVersion: PRINT_AGENT_VERSION,
+            submittedToSpoolerAt: printResult.submittedToSpoolerAt,
           })
-          this.log(`Gerçek baskı tamamlandı: ${job.jobId} (YAZICIYA GÖNDERİLDİ)`)
+          this.log(`ACK sent (printed): ${job.jobId} (spoolerJobId=${printResult.spoolerJobId || 'N/A'})`)
         }
         return { handledJob: true, jobId: job.jobId }
       } else {
-        await this.ackJob(job.jobId, {
+        await this.ackJobWithRetry(job.jobId, {
           status: 'failed',
           isDryRun: this.driver.isDryRun,
           errorCode: printResult.errorCode || 'PRINT_FAILED',
           errorMessage: printResult.error || 'Baskı işlemi başarısız oldu.',
+          printerName: this.config.printerName,
+          agentVersion: PRINT_AGENT_VERSION,
         })
-        this.log(`Yazdırma başarısız: ${job.jobId} (${printResult.error})`, 'warn')
+        this.log(`ACK sent (failed): ${job.jobId} (${printResult.errorCode}: ${printResult.error})`, 'warn')
         return { handledJob: true, jobId: job.jobId, error: printResult.error }
       }
     } catch (err: any) {
@@ -172,41 +263,48 @@ export class PrintAgentService {
   }
 
   /**
-   * Sunucuya işin sonucunu bildirir (Ack).
-   * Simülasyon modunda isDryRun=true ve status='simulated' gönderilir.
-   * Gerçek baskıda isDryRun=false ve status='printed' gönderilir.
+   * Sunucuya işin sonucunu (Ack) 3 denemeye kadar retry ile bildirir.
    */
-  private async ackJob(
+  private async ackJobWithRetry(
     jobId: string,
     result: {
-      status: 'printed' | 'simulated' | 'failed'
+      status: 'printed' | 'simulated' | 'failed' | 'manual_review'
       isDryRun?: boolean
       errorCode?: string
       errorMessage?: string
       simulatedOutputPath?: string
+      spoolerJobId?: string
+      printerName?: string
+      agentVersion?: string
+      submittedToSpoolerAt?: string
     }
-  ): Promise<void> {
-    try {
-      const res = await fetch(
-        `${this.config.apiUrl}/api/print-agent/jobs/${encodeURIComponent(jobId)}/ack`,
-        {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify(result),
+  ): Promise<boolean> {
+    const maxAckAttempts = 3
+    for (let attempt = 1; attempt <= maxAckAttempts; attempt++) {
+      try {
+        const res = await fetch(
+          `${this.config.apiUrl}/api/print-agent/jobs/${encodeURIComponent(jobId)}/ack`,
+          {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify(result),
+          }
+        )
+        if (res.ok) {
+          return true
         }
-      )
-      if (!res.ok) {
         const text = await res.text().catch(() => '')
-        this.log(`Ack bildirim hatası (${jobId}): HTTP ${res.status} ${text}`, 'warn')
+        this.log(`Ack bildirim hatası (${jobId}, deneme ${attempt}/${maxAckAttempts}): HTTP ${res.status} ${text}`, 'warn')
+      } catch (err: any) {
+        this.log(`Ack sunucu bağlantı hatası (${jobId}, deneme ${attempt}/${maxAckAttempts}): ${err.message}`, 'error')
       }
-    } catch (err: any) {
-      this.log(`Ack sunucu bağlantı hatası (${jobId}): ${err.message}`, 'error')
+      if (attempt < maxAckAttempts) {
+        await new Promise((r) => setTimeout(r, attempt * 1000))
+      }
     }
+    return false
   }
 
-  /**
-   * Polling döngüsünü başlatır.
-   */
   start() {
     if (this.isRunning) return
     this.isRunning = true
@@ -216,11 +314,11 @@ export class PrintAgentService {
       : '(TANIMSIZ)'
 
     this.log(`====================================================`)
-    this.log(`KALIPORT PALMX TXP 400 Print Agent Başlatılıyor`)
+    this.log(`KALIPORT PALMX TXP 400 Print Agent v${PRINT_AGENT_VERSION} Başlatılıyor`)
     this.log(`Hedef API: ${this.config.apiUrl}`)
     this.log(`Agent ID : ${this.config.agentId} (Token: ${maskedToken})`)
     this.log(`Yazıcı   : ${this.config.printerName}`)
-    this.log(`Çalışma  : ${this.driver.isDryRun ? 'DRY_RUN (ZORUNLU SİMÜLASYON MODU)' : 'CANLI YAZICI MODU'}`)
+    this.log(`Çalışma  : ${this.driver.isDryRun ? 'DRY_RUN (ZORUNLU SİMÜLASYON MODU)' : 'CANLI YAZICI MODU (SumatraPDF Sessiz)'}`)
     if (this.driver.isDryRun) {
       this.log(`Simülasyon Çıktı Klasörü: ${this.config.outputDir}`)
     }
@@ -232,7 +330,6 @@ export class PrintAgentService {
       this.pollTimer = setTimeout(async () => {
         const { error } = await this.pollOnce()
 
-        // Hata durumunda kontrollü exponential backoff
         if (error) {
           const nextDelay = this.currentBackoffMs
           this.currentBackoffMs = Math.min(this.currentBackoffMs * 1.5, this.config.maxBackoffMs)
@@ -247,9 +344,6 @@ export class PrintAgentService {
     scheduleNext(100)
   }
 
-  /**
-   * Agent'ı kontrollü şekilde durdurur (Graceful Shutdown).
-   */
   async stop(): Promise<void> {
     this.log(`Kapatma sinyali alındı, agent durduruluyor...`)
     this.isRunning = false
@@ -259,7 +353,6 @@ export class PrintAgentService {
       this.pollTimer = null
     }
 
-    // Aktif işleme varsa bitmesini bekle (azami 10 sn)
     let waitCount = 0
     while (this.isProcessing && waitCount < 100) {
       await new Promise((r) => setTimeout(r, 100))

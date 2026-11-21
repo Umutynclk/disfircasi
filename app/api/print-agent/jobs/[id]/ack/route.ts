@@ -31,11 +31,13 @@ export async function POST(
   try {
     const body = await req.json().catch(() => ({}))
     const rawStatus = body.status
-    let status: 'printed' | 'simulated' | 'failed'
+    let status: 'printed' | 'simulated' | 'failed' | 'manual_review'
     if (rawStatus === 'simulated') {
       status = 'simulated'
     } else if (rawStatus === 'printed') {
       status = 'printed'
+    } else if (rawStatus === 'manual_review') {
+      status = 'manual_review'
     } else {
       status = 'failed'
     }
@@ -44,6 +46,10 @@ export async function POST(
     const simulatedOutputPath = body.simulatedOutputPath ? String(body.simulatedOutputPath) : undefined
     const errorCode = body.errorCode ? String(body.errorCode) : undefined
     const errorMessage = body.errorMessage ? String(body.errorMessage) : undefined
+    const spoolerJobId = body.spoolerJobId ? String(body.spoolerJobId) : undefined
+    const printerName = body.printerName ? String(body.printerName) : undefined
+    const agentVersion = body.agentVersion ? String(body.agentVersion) : undefined
+    const submittedToSpoolerAt = body.submittedToSpoolerAt ? String(body.submittedToSpoolerAt) : undefined
 
     // 2. Baskı Sonucunu Atomik Olarak Kaydet
     const ackResult = await ackPrintJobServer(jobId, auth.agent.agentId, {
@@ -52,6 +58,10 @@ export async function POST(
       simulatedOutputPath,
       errorCode,
       errorMessage,
+      spoolerJobId,
+      printerName,
+      agentVersion,
+      submittedToSpoolerAt,
     })
 
     return NextResponse.json({

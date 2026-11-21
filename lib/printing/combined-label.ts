@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, PDFName, rgb, StandardFonts } from 'pdf-lib'
 import {
   ThermalPrintSettings,
   DEFAULT_PRINT_SETTINGS,
@@ -144,7 +144,9 @@ export async function generateCombinedThermalLabelPdf({
     throw new Error('HepsiJET kargo etiketinde geçerli bir sayfa bulunamadı.')
   }
 
-  const [embeddedHepsiJetPage] = await combinedDoc.embedPdf(sourceDoc, [0])
+  // Kaynak PDF'de birden fazla sayfa varsa ilk boş olmayan sayfayı seç
+  const sourcePageIndex = findFirstNonEmptyPageIndex(sourceDoc)
+  const [embeddedHepsiJetPage] = await combinedDoc.embedPdf(sourceDoc, [sourcePageIndex])
   const srcWidth = embeddedHepsiJetPage.width
   const srcHeight = embeddedHepsiJetPage.height
 
@@ -234,8 +236,116 @@ export async function generateCombinedThermalLabelPdf({
     fontOblique,
   })
 
+  // MediaBox ve CropBox değerlerini açıkça eşitle (yazıcı sürücüsünde boş kenar/sayfa taşmasını önler)
+  page.setMediaBox(0, 0, totalWidthPt, totalHeightPt)
+  page.setCropBox(0, 0, totalWidthPt, totalHeightPt)
+
   const combinedBytes = await combinedDoc.save()
-  return Buffer.from(combinedBytes)
+  const finalBuffer = Buffer.from(combinedBytes)
+
+  // Nihai PDF doğrulaması: Tek sayfa ve boş sayfa yok
+  const inspection = await inspectThermalPdfBuffer(finalBuffer)
+  if (inspection.pageCount !== 1 || inspection.blankPages.length > 0) {
+    throw new Error(
+      `Birleşik etiket PDF doğrulaması başarısız (sayfa: ${inspection.pageCount}, boş sayfalar: ${inspection.blankPages.join(',')})`
+    )
+  }
+
+  return finalBuffer
+}
+
+export interface ThermalPdfPageInfo {
+  pageNumber: number
+  widthPt: number
+  heightPt: number
+  widthMm: number
+  heightMm: number
+  hasContent: boolean
+  contentStreamBytes: number
+}
+
+export interface ThermalPdfInspection {
+  pageCount: number
+  pages: ThermalPdfPageInfo[]
+  blankPages: number[]
+  isValidSingleThermalPage: boolean
+}
+
+function getPageContentStreamSize(pdfDoc: PDFDocument, pageIndex: number): number {
+  const page = pdfDoc.getPage(pageIndex)
+  const contents = page.node.get(PDFName.of('Contents'))
+  if (!contents) return 0
+
+  const resolved = pdfDoc.context.lookup(contents)
+  if (!resolved) return 0
+
+  if (typeof (resolved as any).getContentsSize === 'function') {
+    return (resolved as any).getContentsSize()
+  }
+  if (typeof (resolved as any).size === 'function') {
+    let total = 0
+    const count = (resolved as any).size()
+    for (let i = 0; i < count; i++) {
+      const entry = pdfDoc.context.lookup((resolved as any).get(i))
+      if (entry && typeof (entry as any).getContentsSize === 'function') {
+        total += (entry as any).getContentsSize()
+      }
+    }
+    return total
+  }
+  return 0
+}
+
+/**
+ * Kaynak HepsiJET PDF dokümanında boş olmayan ilk sayfanın indeksini döndürür.
+ */
+export function findFirstNonEmptyPageIndex(sourceDoc: PDFDocument): number {
+  const count = sourceDoc.getPageCount()
+  for (let i = 0; i < count; i++) {
+    const size = getPageContentStreamSize(sourceDoc, i)
+    if (size > 20) {
+      return i
+    }
+  }
+  return 0
+}
+
+/**
+ * Üretilen termal PDF buffer'ını inceler: sayfa sayısı, mm cinsinden boyutlar ve boş sayfa kontrolü.
+ */
+export async function inspectThermalPdfBuffer(pdfBuffer: Buffer): Promise<ThermalPdfInspection> {
+  const doc = await PDFDocument.load(pdfBuffer)
+  const pageCount = doc.getPageCount()
+  const pages: ThermalPdfPageInfo[] = []
+  const blankPages: number[] = []
+
+  for (let i = 0; i < pageCount; i++) {
+    const p = doc.getPage(i)
+    const { width, height } = p.getSize()
+    const streamBytes = getPageContentStreamSize(doc, i)
+    const hasContent = streamBytes > 20
+
+    pages.push({
+      pageNumber: i + 1,
+      widthPt: Number(width.toFixed(2)),
+      heightPt: Number(height.toFixed(2)),
+      widthMm: Number((width / MM_TO_PT).toFixed(1)),
+      heightMm: Number((height / MM_TO_PT).toFixed(1)),
+      hasContent,
+      contentStreamBytes: streamBytes,
+    })
+
+    if (!hasContent) {
+      blankPages.push(i + 1)
+    }
+  }
+
+  return {
+    pageCount,
+    pages,
+    blankPages,
+    isValidSingleThermalPage: pageCount === 1 && blankPages.length === 0,
+  }
 }
 
 interface RenderSlipParams {

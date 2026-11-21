@@ -1,10 +1,18 @@
 /**
- * KALIPORT PALMX TXP 400 Print Agent Tip Tanımları
+ * KALIPORT PALMX TXP 400 Print Agent Tip Tanımları (v2.0.0)
  * Bu dosya bağımsızdır; Windows ortamına taşındığında harici modül bağımlılığı gerektirmez.
  */
 
+export const PRINT_AGENT_VERSION = '2.0.0'
+
 export type PrintJobType = 'shipping_label' | 'no_orders_notice'
-export type PrintJobStatus = 'pending' | 'processing' | 'printed' | 'failed' | 'simulated'
+export type PrintJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'printed'
+  | 'failed'
+  | 'simulated'
+  | 'manual_review'
 
 export interface PrintJobError {
   code: string
@@ -37,6 +45,10 @@ export interface PrintJob {
     totalChecked?: number
     customerDeliveryNo?: string
     simulatedOutputPath?: string
+    spoolerJobId?: string
+    printerName?: string
+    agentVersion?: string
+    submittedToSpoolerAt?: string
     [key: string]: any
   }
 }
@@ -51,6 +63,9 @@ export interface PrintAgentConfig {
   maxBackoffMs: number
   dryRun: boolean
   outputDir: string
+  sumatraPdfPath?: string
+  printSettings?: string
+  stateFilePath?: string
 }
 
 export interface PrinterResult {
@@ -59,6 +74,9 @@ export interface PrinterResult {
   printed: boolean
   simulated: boolean
   outputPath?: string
+  spoolerJobId?: string
+  submittedToSpoolerAt?: string
+  printerName?: string
   error?: string
   errorCode?: string
 }

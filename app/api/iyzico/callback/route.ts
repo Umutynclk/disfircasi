@@ -162,13 +162,15 @@ export async function POST(req: NextRequest) {
 
     // 4. Sonuca Göre Güvenli Yönlendirme (app/satin-al/page.tsx ile tam uyumlu)
     if (transactionResult.action === 'paid' || transactionResult.action === 'already_paid') {
-      console.log(`✅ iyzico Callback: ${targetOrderNumber} başarıyla PAID olarak teyit edildi.`)
+      console.log(`✅ iyzico Callback: ${targetOrderNumber} başarıyla PAID olarak teyit edildi (${transactionResult.action}).`)
 
-      // Anlık Otomatik HepsiJET Gönderisi Oluştur ve Yazdırma Kuyruğuna Ekle
-      try {
-        await processOrderAutoDispatchAndPrint(targetOrderNumber, { triggeredBy: 'iyzico_callback' })
-      } catch (autoErr: any) {
-        console.error('iyzico callback auto-dispatch error:', autoErr?.message || autoErr)
+      // Yalnızca ilk kez PAID olduğunda otomatik HepsiJET gönderisi ve Print Queue tetiklenir (duplicate callback koruması)
+      if (transactionResult.action === 'paid') {
+        try {
+          await processOrderAutoDispatchAndPrint(targetOrderNumber, { triggeredBy: 'iyzico_callback' })
+        } catch (autoErr: any) {
+          console.error('iyzico callback auto-dispatch error:', autoErr?.message || autoErr)
+        }
       }
 
       return NextResponse.redirect(`${protocol}://${host}/satin-al?odeme=basarili&oid=${targetOrderNumber}`, 303)
