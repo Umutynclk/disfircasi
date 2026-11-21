@@ -9,6 +9,7 @@ import { addToCart } from '@/lib/utils/cart'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 import { useLocale } from '@/context/LocaleContext'
+import { useCategories } from '@/context/CategoriesContext'
 
 export interface ShowcaseProductItem {
   id: string
@@ -35,6 +36,7 @@ interface ProductOptionsSectionProps {
 
 export default function ProductOptionsSection({ products, loading }: ProductOptionsSectionProps) {
   const { locale, t, getLocalizedText, getLocalizedPath, formatPriceWithCurrency } = useLocale()
+  const { activeCategories } = useCategories()
   const [addedId, setAddedId] = useState<string | null>(null)
   const [content, setContent] = useState<any>({
     badge: null,
@@ -199,7 +201,13 @@ export default function ProductOptionsSection({ products, loading }: ProductOpti
                   {/* Category */}
                   <div className="flex items-center text-xs sm:text-sm text-slate-500 mb-2">
                     <span className="text-xs font-black uppercase tracking-wider text-sky-600 bg-sky-50 px-3 py-1 rounded-full border border-sky-200/60">
-                      {product.category?.replace(/-/g, ' ') || 'Dental Care'}
+                      {(() => {
+                        const matchedCat = activeCategories.find(
+                          (c) => c.slug === product.category || c.id === (product as any).categoryId
+                        )
+                        if (matchedCat) return getLocalizedText(matchedCat.name as any, matchedCat.name)
+                        return product.category?.replace(/-/g, ' ') || 'Dental Care'
+                      })()}
                     </span>
                   </div>
 

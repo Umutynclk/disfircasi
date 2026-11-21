@@ -4,7 +4,8 @@ import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
-import { subscribeToCategories, Category } from '@/lib/firebase/categories'
+import { useCategories } from '@/context/CategoriesContext'
+import { Category } from '@/lib/firebase/categories'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -132,26 +133,16 @@ function ProductsListContent() {
   const searchParams = useSearchParams()
   const categoryParam = searchParams.get('kategori')
 
+  const { activeCategories: categories } = useCategories()
   const [products, setProducts] = useState<Product[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategorySlug, setSelectedCategorySlug] = useState<string>(categoryParam || 'all')
   const [addedId, setAddedId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (categoryParam) {
-      setSelectedCategorySlug(categoryParam)
-    }
+    setSelectedCategorySlug(categoryParam || 'all')
   }, [categoryParam])
-
-  useEffect(() => {
-    const unsubCats = subscribeToCategories((cats) => {
-      const activeCats = cats.filter((c) => c.active !== false)
-      setCategories(activeCats)
-    })
-    return () => unsubCats()
-  }, [])
 
   useEffect(() => {
     try {

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { LocaleProvider } from '@/context/LocaleContext'
+import { CategoriesProvider } from '@/context/CategoriesContext'
 import ClientLayoutWrapper from '@/components/layout/ClientLayoutWrapper'
 import AnalyticsProvider from '@/components/providers/AnalyticsProvider'
 import CookieProvider from '@/components/providers/CookieProvider'
@@ -102,14 +103,16 @@ export default function RootLayout({
       </head>
       <body className={inter.className} suppressHydrationWarning>
         <LocaleProvider>
-          <SessionTracker />
-          <CookieProvider>
-            <AnalyticsProvider>
-              <ClientLayoutWrapper>
-                {children}
-              </ClientLayoutWrapper>
-            </AnalyticsProvider>
-          </CookieProvider>
+          <CategoriesProvider>
+            <SessionTracker />
+            <CookieProvider>
+              <AnalyticsProvider>
+                <ClientLayoutWrapper>
+                  {children}
+                </ClientLayoutWrapper>
+              </AnalyticsProvider>
+            </CookieProvider>
+          </CategoriesProvider>
         </LocaleProvider>
       </body>
     </html>

@@ -15,16 +15,17 @@ import {
   FiArrowRight,
   FiZap,
   FiShoppingBag,
+  FiTag,
 } from 'react-icons/fi'
 
 import {
   HomepageShowcaseConfig,
   DEFAULT_HOMEPAGE_SHOWCASE,
   subscribeToHomepageShowcase,
-  subscribeToSection,
-  DynamicSectionItem,
 } from '@/lib/firebase/content'
+import { Category, buildCategoryUrl } from '@/lib/firebase/categories'
 import { useLocale } from '@/context/LocaleContext'
+import { useCategories } from '@/context/CategoriesContext'
 
 // Large SVG Icons for the bottom trust bar
 function ToothIcon({ className = 'w-7 h-7' }: { className?: string }) {
@@ -64,7 +65,6 @@ export interface ShowcaseResolvedProduct {
   description?: string
   inStock?: boolean
   features?: string[]
-  // Overrides
   overrideTitle?: any
   overrideSubtitle?: any
   overrideDescription?: any
@@ -75,57 +75,85 @@ export interface ShowcaseResolvedProduct {
   overrideFeatures?: string[]
 }
 
+const SHOWCASE_THEMES = [
+  {
+    cardBg: 'from-white via-sky-50/50 to-blue-50/40',
+    border: 'border-sky-100/90 hover:shadow-sky-100/80',
+    ambient: 'bg-sky-200/40',
+    badge: 'text-sky-700 bg-sky-100/80 border-sky-200/60',
+    subtitle: 'text-sky-600',
+    halo: 'border-sky-200/60 from-sky-100/50 via-white to-sky-50/30',
+    divider: 'border-sky-100/80',
+    cta: 'bg-sky-600 hover:bg-sky-700 shadow-sky-600/25',
+    shadow: 'drop-shadow-[0_15px_30px_rgba(2,132,199,0.20)]',
+    placeholderBg: 'bg-sky-100/90 text-sky-600',
+  },
+  {
+    cardBg: 'from-white via-emerald-50/50 to-teal-50/40',
+    border: 'border-emerald-100/90 hover:shadow-emerald-100/80',
+    ambient: 'bg-emerald-200/40',
+    badge: 'text-emerald-700 bg-emerald-100/80 border-emerald-200/60',
+    subtitle: 'text-emerald-600',
+    halo: 'border-emerald-200/60 from-emerald-100/50 via-white to-emerald-50/30',
+    divider: 'border-emerald-100/80',
+    cta: 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25',
+    shadow: 'drop-shadow-[0_15px_30px_rgba(16,185,129,0.20)]',
+    placeholderBg: 'bg-emerald-100/90 text-emerald-600',
+  },
+  {
+    cardBg: 'from-white via-indigo-50/50 to-sky-50/40',
+    border: 'border-indigo-100/90 hover:shadow-indigo-100/80',
+    ambient: 'bg-indigo-200/35',
+    badge: 'text-indigo-700 bg-indigo-100/80 border-indigo-200/60',
+    subtitle: 'text-indigo-600',
+    halo: 'border-indigo-200/60 from-indigo-100/50 via-white to-indigo-50/30',
+    divider: 'border-indigo-100/80',
+    cta: 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25',
+    shadow: 'drop-shadow-[0_15px_30px_rgba(79,70,229,0.20)]',
+    placeholderBg: 'bg-indigo-100/90 text-indigo-600',
+  },
+  {
+    cardBg: 'from-white via-amber-50/50 to-orange-50/35',
+    border: 'border-amber-100/90 hover:shadow-amber-100/80',
+    ambient: 'bg-amber-200/35',
+    badge: 'text-amber-700 bg-amber-100/80 border-amber-200/60',
+    subtitle: 'text-amber-600',
+    halo: 'border-amber-200/60 from-amber-100/50 via-white to-amber-50/30',
+    divider: 'border-amber-100/80',
+    cta: 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/25',
+    shadow: 'drop-shadow-[0_15px_30px_rgba(217,119,6,0.20)]',
+    placeholderBg: 'bg-amber-100/90 text-amber-600',
+  },
+] as const
+
 interface HomeShowcaseProps {
   products?: any[]
   loading?: boolean
 }
 
 export default function HomeShowcase({ products = [], loading = false }: HomeShowcaseProps) {
-  const { locale, t, getLocalizedText, getLocalizedPath, formatPriceWithCurrency } = useLocale()
+  const { locale, t, getLocalizedText, getLocalizedPath } = useLocale()
+  const { activeCategories, featuredCategories, loading: categoriesLoading } = useCategories()
 
   const [config, setConfig] = useState<HomepageShowcaseConfig>(DEFAULT_HOMEPAGE_SHOWCASE)
-  const [dynamicFeatures, setDynamicFeatures] = useState<DynamicSectionItem[]>([])
-  
-  // Independent active index state for left and right columns
+
+  // Legacy 2-column rotation state (used only when no category has isFeatured === true)
   const [leftIndex, setLeftIndex] = useState(0)
   const [rightIndex, setRightIndex] = useState(0)
-  
-  // Pause states
   const [leftPaused, setLeftPaused] = useState(false)
   const [rightPaused, setRightPaused] = useState(false)
   const [tabVisible, setTabVisible] = useState(true)
 
-  // Direct checkout handler removed - showcase now uses "Ürünleri Gör" category links
+  // Slider pagination state when featuredCategories.length > 4
+  const [showcasePage, setShowcasePage] = useState(0)
 
-  // Real-time Firestore subscription to homepage showcase config
+  // Real-time Firestore subscription to legacy homepage showcase config (fallback)
   useEffect(() => {
     const unsub = subscribeToHomepageShowcase((newConfig) => {
       setConfig(newConfig)
     })
     return () => unsub()
   }, [])
-
-  // Real-time Firestore subscription to dynamic homepage features
-  useEffect(() => {
-    const unsubFeatures = subscribeToSection(
-      'homepageFeatures',
-      (secData) => {
-        if (secData.items && secData.items.length > 0) {
-          setDynamicFeatures(secData.items.filter((i) => i.active !== false))
-        }
-      },
-      {
-        items: [
-          { id: 'f1', title: t.features.f1Title, description: t.features.f1Desc, extra: { icon: 'tooth' }, order: 1, active: true },
-          { id: 'f2', title: t.features.f2Title, description: t.features.f2Desc, extra: { icon: 'leaf' }, order: 2, active: true },
-          { id: 'f3', title: t.features.f3Title, description: t.features.f3Desc, extra: { icon: 'heart' }, order: 3, active: true },
-          { id: 'f4', title: t.features.f4Title, description: t.features.f4Desc, extra: { icon: 'airplane' }, order: 4, active: true },
-          { id: 'f5', title: t.features.f5Title, description: t.features.f5Desc, extra: { icon: 'smile' }, order: 5, active: true },
-        ],
-      }
-    )
-    return () => unsubFeatures()
-  }, [t])
 
   // Visibility state listener (pause rotation when tab is hidden)
   useEffect(() => {
@@ -136,7 +164,28 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
-  // Resolve Left Items (Automatic Sonic Brushes)
+  // Reset slider page when featured count changes
+  const ITEMS_PER_SLIDE = 3
+  const totalSliderPages = featuredCategories.length > 4 ? Math.ceil(featuredCategories.length / ITEMS_PER_SLIDE) : 1
+  useEffect(() => {
+    if (showcasePage >= totalSliderPages) {
+      setShowcasePage(0)
+    }
+  }, [showcasePage, totalSliderPages])
+
+  // Helper: find best image for a category (featured.image -> category.image -> first product in category)
+  const resolveCategoryImage = (cat: Category): string => {
+    if (cat.featured?.image) return cat.featured.image
+    if (cat.image) return cat.image
+    const matchedProd = products.find(
+      (p) =>
+        (p.category && p.category.toLowerCase() === (cat.slug || '').toLowerCase()) ||
+        (p.categoryId && p.categoryId === cat.id)
+    )
+    return matchedProd?.images?.[0] || matchedProd?.image || ''
+  }
+
+  // Legacy fallback: Left Items
   const leftProducts: ShowcaseResolvedProduct[] = useMemo(() => {
     const sideConfig = config.left
     if (sideConfig.items && sideConfig.items.length > 0) {
@@ -167,7 +216,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
         })
     }
 
-    // Dynamic Fallback from raw products collection
     const autoList = products.filter(
       (p) =>
         p.category === 'otomatik' ||
@@ -206,7 +254,7 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
     ]
   }, [config.left, products, t])
 
-  // Resolve Right Items (Disposable / Refill Brushes)
+  // Legacy fallback: Right Items
   const rightProducts: ShowcaseResolvedProduct[] = useMemo(() => {
     const sideConfig = config.right
     if (sideConfig.items && sideConfig.items.length > 0) {
@@ -237,7 +285,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
         })
     }
 
-    // Dynamic Fallback from raw products collection
     const dispList = products.filter(
       (p) =>
         p.category === 'kullan-at' ||
@@ -277,7 +324,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
     ]
   }, [config.right, products, t])
 
-  // Ensure indices are within bounds
   useEffect(() => {
     if (leftIndex >= leftProducts.length && leftProducts.length > 0) setLeftIndex(0)
   }, [leftProducts.length, leftIndex])
@@ -286,33 +332,31 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
     if (rightIndex >= rightProducts.length && rightProducts.length > 0) setRightIndex(0)
   }, [rightProducts.length, rightIndex])
 
-  // Rotation Timer for LEFT Column (5 seconds)
+  const useDynamicFeatured = featuredCategories.length > 0
+
   useEffect(() => {
-    if (!config.autoplay || leftProducts.length <= 1 || leftPaused || !tabVisible || config.active === false) return
+    if (useDynamicFeatured || !config.autoplay || leftProducts.length <= 1 || leftPaused || !tabVisible || config.active === false) return
     const intervalMs = (config.autoplaySeconds || 5) * 1000
     const timer = setInterval(() => {
       setLeftIndex((prev) => (prev + 1) % leftProducts.length)
     }, intervalMs)
     return () => clearInterval(timer)
-  }, [config.autoplay, config.autoplaySeconds, config.active, leftProducts.length, leftPaused, tabVisible])
+  }, [useDynamicFeatured, config.autoplay, config.autoplaySeconds, config.active, leftProducts.length, leftPaused, tabVisible])
 
-  // Rotation Timer for RIGHT Column (5 seconds)
   useEffect(() => {
-    if (!config.autoplay || rightProducts.length <= 1 || rightPaused || !tabVisible || config.active === false) return
+    if (useDynamicFeatured || !config.autoplay || rightProducts.length <= 1 || rightPaused || !tabVisible || config.active === false) return
     const intervalMs = (config.autoplaySeconds || 5) * 1000
     const timer = setInterval(() => {
       setRightIndex((prev) => (prev + 1) % rightProducts.length)
     }, intervalMs)
     return () => clearInterval(timer)
-  }, [config.autoplay, config.autoplaySeconds, config.active, rightProducts.length, rightPaused, tabVisible])
+  }, [useDynamicFeatured, config.autoplay, config.autoplaySeconds, config.active, rightProducts.length, rightPaused, tabVisible])
 
   const currentLeft = leftProducts[leftIndex] || leftProducts[0]
   const currentRight = rightProducts[rightIndex] || rightProducts[0]
-
   const leftImageSrc = currentLeft?.overrideImage || currentLeft?.images?.[0] || currentLeft?.image || ''
   const rightImageSrc = currentRight?.overrideImage || currentRight?.images?.[0] || currentRight?.image || ''
 
-  // Texts strictly localized by current active locale
   const leftBadge = typeof currentLeft?.overrideBadge === 'object'
     ? getLocalizedText(currentLeft.overrideBadge, t.showcase.leftTitleBadge)
     : (locale === 'tr' ? (currentLeft?.overrideBadge || config.left.badge || t.showcase.leftTitleBadge) : t.showcase.leftTitleBadge)
@@ -324,10 +368,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
   const leftDesc = typeof currentLeft?.overrideDescription === 'object'
     ? getLocalizedText(currentLeft.overrideDescription, t.showcase.leftDefaultDesc)
     : (locale === 'tr' ? (currentLeft?.overrideDescription || currentLeft?.description || config.left.description || t.showcase.leftDefaultDesc) : t.showcase.leftDefaultDesc)
-
-  const leftCtaText = typeof currentLeft?.overrideCtaText === 'object'
-    ? getLocalizedText(currentLeft.overrideCtaText, t.showcase.buyNow)
-    : (locale === 'tr' ? (currentLeft?.overrideCtaText || config.left.ctaText || t.showcase.buyNow) : t.showcase.buyNow)
 
   const leftCtaUrl = currentLeft?.overrideCtaUrl || config.left.ctaUrl || `${getLocalizedPath('/urunler')}?kategori=otomatik`
 
@@ -343,29 +383,186 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
     ? getLocalizedText(currentRight.overrideDescription, t.showcase.rightDefaultDesc)
     : (locale === 'tr' ? (currentRight?.overrideDescription || currentRight?.description || config.right.description || t.showcase.rightDefaultDesc) : t.showcase.rightDefaultDesc)
 
-  const rightCtaText = typeof currentRight?.overrideCtaText === 'object'
-    ? getLocalizedText(currentRight.overrideCtaText, t.showcase.buyNow)
-    : (locale === 'tr' ? (currentRight?.overrideCtaText || config.right.ctaText || t.showcase.buyNow) : t.showcase.buyNow)
-
   const rightCtaUrl = currentRight?.overrideCtaUrl || config.right.ctaUrl || `${getLocalizedPath('/urunler')}?kategori=kullan-at`
 
-  const featuresList = dynamicFeatures.length > 0 ? dynamicFeatures : [
-    { id: 'f1', title: t.features.f1Title, description: t.features.f1Desc, extra: { icon: 'tooth' }, order: 1, active: true },
-    { id: 'f2', title: t.features.f2Title, description: t.features.f2Desc, extra: { icon: 'leaf' }, order: 2, active: true },
-    { id: 'f3', title: t.features.f3Title, description: t.features.f3Desc, extra: { icon: 'heart' }, order: 3, active: true },
-    { id: 'f4', title: t.features.f4Title, description: t.features.f4Desc, extra: { icon: 'airplane' }, order: 4, active: true },
-    { id: 'f5', title: t.features.f5Title, description: t.features.f5Desc, extra: { icon: 'smile' }, order: 5, active: true },
-  ]
+  // Render a single dynamic category showcase card
+  const renderFeaturedCategoryCard = (cat: Category, index: number, totalCount: number) => {
+    const theme = SHOWCASE_THEMES[index % SHOWCASE_THEMES.length]
+    const catName = getLocalizedText(cat.name as any, cat.name)
+    const badge = cat.featured?.badge || 'ÖNE ÇIKAN'
+    const subtitle = cat.featured?.subtitle || ''
+    const title = cat.featured?.title || catName
+    const description = cat.featured?.description || cat.description || ''
+    const ctaLabel = cat.featured?.ctaLabel || t.showcase.viewProducts
+    const ctaUrl = buildCategoryUrl(cat, getLocalizedPath('/urunler'))
+    const imageSrc = resolveCategoryImage(cat)
+
+    const isSingle = totalCount === 1
+    const isCompact = totalCount >= 3
+
+    if (isSingle) {
+      return (
+        <div
+          key={cat.id || cat.slug}
+          className={`group relative bg-gradient-to-br ${theme.cardBg} rounded-3xl sm:rounded-[2.25rem] p-6 sm:p-10 border-2 ${theme.border} shadow-md hover:shadow-2xl transition-all duration-500 overflow-hidden max-w-5xl mx-auto`}
+        >
+          <div className={`absolute top-0 right-0 w-96 h-96 ${theme.ambient} rounded-full blur-3xl pointer-events-none -mr-20 -mt-20 group-hover:scale-110 transition-transform duration-700`} />
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 items-center">
+            <div className="space-y-3">
+              {badge && (
+                <span className={`inline-block text-[11px] sm:text-xs font-black tracking-wider uppercase px-3 py-1 rounded-full border ${theme.badge}`}>
+                  {badge}
+                </span>
+              )}
+              {subtitle && (
+                <p className={`text-sm sm:text-base font-extrabold uppercase tracking-wider ${theme.subtitle}`}>
+                  {subtitle}
+                </p>
+              )}
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-tight">
+                {title}
+              </h2>
+              {description && (
+                <p className="text-sm sm:text-base text-slate-600 font-medium leading-relaxed max-w-lg">
+                  {description}
+                </p>
+              )}
+              <div className="pt-3">
+                <Link
+                  href={ctaUrl}
+                  className={`inline-flex items-center justify-center gap-2 px-8 py-3.5 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase transition-all duration-300 shadow-lg hover:scale-105 active:scale-95 ${theme.cta}`}
+                >
+                  <FiArrowRight className="w-4 h-4" />
+                  <span>{ctaLabel}</span>
+                </Link>
+              </div>
+            </div>
+
+            <div className="relative flex items-center justify-center h-[220px] sm:h-[280px] lg:h-[320px]">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
+                <div className={`w-56 h-56 sm:w-72 sm:h-72 rounded-full border-2 bg-gradient-to-tr shadow-inner ${theme.halo}`} />
+              </div>
+              {imageSrc ? (
+                <div className="relative w-full h-full flex items-center justify-center p-2">
+                  <Image
+                    src={imageSrc}
+                    alt={title}
+                    fill
+                    className={`object-contain ${theme.shadow} group-hover:scale-105 transition-transform duration-700`}
+                    priority
+                    sizes="(max-width: 1024px) 100vw, 520px"
+                  />
+                </div>
+              ) : (
+                <div className={`w-28 h-28 rounded-3xl ${theme.placeholderBg} flex items-center justify-center shadow-lg`}>
+                  <FiTag className="w-12 h-12" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        key={cat.id || cat.slug}
+        className={`group relative bg-gradient-to-br ${theme.cardBg} rounded-3xl sm:rounded-[2rem] ${
+          isCompact ? 'p-5 sm:p-6' : 'p-5 sm:p-7 xl:p-8'
+        } border-2 ${theme.border} shadow-md hover:shadow-2xl transition-all duration-500 flex flex-col justify-between overflow-hidden`}
+      >
+        <div className={`absolute top-0 right-0 w-72 h-72 ${theme.ambient} rounded-full blur-3xl pointer-events-none -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700`} />
+
+        {/* Card Header */}
+        <div className="relative z-10">
+          {badge && (
+            <div className="mb-2">
+              <span className={`inline-block text-[10px] sm:text-xs font-black tracking-wider uppercase px-3 py-1 rounded-full border ${theme.badge}`}>
+                {badge}
+              </span>
+            </div>
+          )}
+
+          {subtitle && (
+            <p className={`text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${theme.subtitle}`}>
+              {subtitle}
+            </p>
+          )}
+
+          <h2
+            className={`font-black text-slate-900 tracking-tight leading-tight mb-1.5 ${
+              isCompact ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl xl:text-4xl'
+            }`}
+          >
+            {title}
+          </h2>
+
+          {description && (
+            <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed line-clamp-2">
+              {description}
+            </p>
+          )}
+        </div>
+
+        {/* Visual */}
+        <div
+          className={`relative z-10 my-3 flex items-center justify-center ${
+            isCompact ? 'min-h-[160px] sm:min-h-[190px]' : 'min-h-[190px] sm:min-h-[240px] lg:min-h-[270px]'
+          }`}
+        >
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
+            <div
+              className={`rounded-full border-2 bg-gradient-to-tr shadow-inner ${theme.halo} ${
+                isCompact ? 'w-36 h-36 sm:w-44 sm:h-44' : 'w-48 h-48 sm:w-64 sm:h-64 lg:w-72 lg:h-72'
+              }`}
+            />
+          </div>
+
+          {imageSrc ? (
+            <div
+              className={`relative w-full flex items-center justify-center p-2 ${
+                isCompact ? 'h-[155px] sm:h-[185px]' : 'h-[180px] sm:h-[230px] lg:h-[260px]'
+              }`}
+            >
+              <Image
+                src={imageSrc}
+                alt={title}
+                fill
+                className={`object-contain ${theme.shadow} group-hover:scale-105 transition-transform duration-700`}
+                priority={index < 2}
+                sizes={isCompact ? '(max-width: 768px) 100vw, 380px' : '(max-width: 768px) 100vw, 550px'}
+              />
+            </div>
+          ) : (
+            <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ${theme.placeholderBg} flex items-center justify-center shadow-lg`}>
+              <FiTag className="w-9 h-9" />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom CTA */}
+        <div className={`relative z-10 pt-3 flex items-center justify-between gap-3 border-t ${theme.divider}`}>
+          <Link
+            href={ctaUrl}
+            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 ${
+              isCompact ? 'px-5 py-3 text-xs' : 'px-8 py-3.5 text-xs sm:text-sm'
+            } text-white rounded-full font-black tracking-wider uppercase transition-all duration-300 shadow-lg hover:scale-105 active:scale-95 cursor-pointer ${theme.cta}`}
+          >
+            <FiArrowRight className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{ctaLabel}</span>
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <section className="relative w-full bg-slate-50/50 overflow-hidden pt-2 sm:pt-4 pb-6 sm:pb-8">
-      
       {/* Background Subtle Organic Brand Wave Curves */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
         <div className="absolute -top-10 -left-20 w-[600px] h-[600px] bg-sky-200/25 rounded-full blur-3xl" />
         <div className="absolute -bottom-10 -right-20 w-[600px] h-[600px] bg-emerald-200/25 rounded-full blur-3xl" />
 
-        {/* Dynamic Curved Accent Line */}
         <svg className="absolute bottom-6 left-0 right-0 w-full h-36 opacity-30 pointer-events-none" viewBox="0 0 1440 240" fill="none" preserveAspectRatio="none">
           <path d="M0,120 C360,200 480,-20 720,120 C960,260 1080,40 1440,140 L1440,240 L0,240 Z" fill="url(#dualWaveGrad)" />
           <defs>
@@ -379,307 +576,404 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
       </div>
 
       <div className="container-custom section-padding relative z-10">
-
         {/* ======================================================== */}
-        {/* DUAL COLUMN SHOWCASE GRID (Connected & Above-the-Fold)    */}
+        {/* 1. DYNAMIC MULTI-CATEGORY SHOWCASE OR LEGACY FALLBACK    */}
         {/* ======================================================== */}
-        <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6 items-stretch">
-          
-          {/* ======================================================== */}
-          {/* 1. LEFT COLUMN: OTOMATİK DİŞ FIRÇASI (Blue / Cyan Theme)  */}
-          {/* ======================================================== */}
-          <div
-            onMouseEnter={() => setLeftPaused(true)}
-            onMouseLeave={() => setLeftPaused(false)}
-            onTouchStart={() => setLeftPaused(true)}
-            onTouchEnd={() => setLeftPaused(false)}
-            className="group relative bg-gradient-to-br from-white via-sky-50/50 to-blue-50/40 rounded-3xl sm:rounded-[2.25rem] p-5 sm:p-7 xl:p-8 border-2 border-sky-100/90 shadow-md hover:shadow-2xl hover:shadow-sky-100/80 transition-all duration-500 flex flex-col justify-between overflow-hidden"
-          >
-            {/* Ambient Lighting Background */}
-            <div className="absolute top-0 right-0 w-80 h-80 bg-sky-200/40 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700" />
+        {categoriesLoading ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6">
+            <div className="h-[420px] rounded-3xl bg-white/80 border-2 border-slate-100 animate-pulse" />
+            <div className="h-[420px] rounded-3xl bg-white/80 border-2 border-slate-100 animate-pulse" />
+          </div>
+        ) : useDynamicFeatured ? (
+          <div>
+            {featuredCategories.length === 1 && (
+              <div>{renderFeaturedCategoryCard(featuredCategories[0], 0, 1)}</div>
+            )}
 
-            {/* Left Header Info */}
-            <div className="relative z-10">
-              <div className="flex items-center justify-between gap-3 mb-1.5">
-                <span className="text-[11px] sm:text-xs font-black tracking-wider text-sky-600 uppercase bg-sky-100/80 px-3 py-1 rounded-full border border-sky-200/60">
-                  {leftBadge}
-                </span>
+            {featuredCategories.length === 2 && (
+              <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6 items-stretch">
+                {renderFeaturedCategoryCard(featuredCategories[0], 0, 2)}
 
-                {/* Dots indicator for rotation */}
+                {/* Center VEYA Divider for 2-column classic composition */}
+                <div className="hidden lg:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex-col items-center pointer-events-none">
+                  <div className="w-1 h-28 bg-gradient-to-b from-sky-400/80 via-sky-500 to-slate-400 rounded-full" />
+                  <div className="my-2 w-14 h-14 rounded-full bg-white border-3 border-slate-200 shadow-xl flex items-center justify-center text-slate-800 font-black text-xs uppercase tracking-widest pointer-events-auto ring-4 ring-sky-50">
+                    {t.showcase.or}
+                  </div>
+                  <div className="w-1 h-28 bg-gradient-to-b from-slate-400 via-emerald-500 to-emerald-400/80 rounded-full" />
+                </div>
+
+                {renderFeaturedCategoryCard(featuredCategories[1], 1, 2)}
+              </div>
+            )}
+
+            {featuredCategories.length === 3 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-stretch">
+                {featuredCategories.map((cat, idx) => renderFeaturedCategoryCard(cat, idx, 3))}
+              </div>
+            )}
+
+            {featuredCategories.length === 4 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5 items-stretch">
+                {featuredCategories.map((cat, idx) => renderFeaturedCategoryCard(cat, idx, 4))}
+              </div>
+            )}
+
+            {featuredCategories.length > 4 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                    Öne Çıkan Kategoriler ({featuredCategories.length})
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowcasePage((prev) => (prev - 1 + totalSliderPages) % totalSliderPages)
+                      }
+                      className="p-2 rounded-full bg-white border border-slate-200 text-slate-700 hover:text-sky-600 hover:border-sky-300 transition-colors shadow-2xs cursor-pointer"
+                      aria-label="Önceki Vitrin Sayfası"
+                    >
+                      <FiChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {Array.from({ length: totalSliderPages }).map((_, pageIdx) => (
+                        <button
+                          key={pageIdx}
+                          type="button"
+                          onClick={() => setShowcasePage(pageIdx)}
+                          className={`h-2 rounded-full transition-all cursor-pointer ${
+                            showcasePage === pageIdx ? 'w-6 bg-sky-600' : 'w-2 bg-slate-300 hover:bg-slate-400'
+                          }`}
+                          aria-label={`Vitrin Sayfa ${pageIdx + 1}`}
+                        />
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowcasePage((prev) => (prev + 1) % totalSliderPages)}
+                      className="p-2 rounded-full bg-white border border-slate-200 text-slate-700 hover:text-sky-600 hover:border-sky-300 transition-colors shadow-2xs cursor-pointer"
+                      aria-label="Sonraki Vitrin Sayfası"
+                    >
+                      <FiChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={showcasePage}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-stretch"
+                  >
+                    {featuredCategories
+                      .slice(showcasePage * ITEMS_PER_SLIDE, showcasePage * ITEMS_PER_SLIDE + ITEMS_PER_SLIDE)
+                      .map((cat, idx) =>
+                        renderFeaturedCategoryCard(cat, showcasePage * ITEMS_PER_SLIDE + idx, featuredCategories.length)
+                      )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+        ) : config.active !== false ? (
+          /* LEGACY 2-COLUMN FALLBACK (preserved for backward compatibility when no category is featured yet) */
+          <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6 items-stretch">
+            {/* LEFT COLUMN */}
+            <div
+              onMouseEnter={() => setLeftPaused(true)}
+              onMouseLeave={() => setLeftPaused(false)}
+              onTouchStart={() => setLeftPaused(true)}
+              onTouchEnd={() => setLeftPaused(false)}
+              className="group relative bg-gradient-to-br from-white via-sky-50/50 to-blue-50/40 rounded-3xl sm:rounded-[2.25rem] p-5 sm:p-7 xl:p-8 border-2 border-sky-100/90 shadow-md hover:shadow-2xl hover:shadow-sky-100/80 transition-all duration-500 flex flex-col justify-between overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-80 h-80 bg-sky-200/40 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700" />
+
+              <div className="relative z-10">
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <span className="text-[11px] sm:text-xs font-black tracking-wider text-sky-600 uppercase bg-sky-100/80 px-3 py-1 rounded-full border border-sky-200/60">
+                    {leftBadge}
+                  </span>
+
+                  {leftProducts.length > 1 && (
+                    <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full border border-sky-100 shadow-2xs">
+                      {leftProducts.map((_, dotIdx) => (
+                        <button
+                          key={dotIdx}
+                          onClick={() => setLeftIndex(dotIdx)}
+                          className={`transition-all duration-300 rounded-full ${
+                            leftIndex === dotIdx ? 'w-5 h-2 bg-sky-600' : 'w-2 h-2 bg-slate-300 hover:bg-slate-400'
+                          }`}
+                          aria-label={`Ürün ${dotIdx + 1}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <h2 className="text-2xl sm:text-3xl lg:text-3.5xl xl:text-4xl font-black text-slate-900 tracking-tight leading-tight mb-1">
+                  {leftSubtitle}
+                </h2>
+
+                <div className="relative inline-flex items-center gap-3 my-1">
+                  <div className="relative flex items-center justify-center">
+                    <div className="text-3xl sm:text-4xl lg:text-4.5xl font-black text-sky-600 tracking-tighter">
+                      360°
+                    </div>
+                    <div className="absolute -inset-1.5 border-2 border-dashed border-sky-400 rounded-full animate-spin-slow opacity-60 pointer-events-none" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs sm:text-sm font-black text-slate-900 tracking-wider uppercase leading-tight">
+                      {t.showcase.leftHighlight}
+                    </span>
+                    <span className="text-xs sm:text-sm font-black text-slate-700 tracking-wider uppercase leading-tight">
+                      {t.showcase.leftHighlightSub}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed max-w-md mt-0.5 line-clamp-2">
+                  {leftDesc}
+                </p>
+              </div>
+
+              <div className="relative z-10 my-2 sm:my-3 flex items-center justify-center min-h-[190px] sm:min-h-[240px] lg:min-h-[270px] xl:min-h-[300px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentLeft?.id || leftIndex}
+                    initial={{ opacity: 0, scale: 0.92, y: 15 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.94, y: -10 }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                    className="relative w-full h-[180px] sm:h-[230px] lg:h-[260px] xl:h-[290px] flex items-center justify-center"
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
+                      <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-72 lg:h-72 xl:w-80 xl:h-80 rounded-full border-2 border-sky-200/60 bg-gradient-to-tr from-sky-100/50 via-white to-sky-50/30 shadow-inner" />
+                    </div>
+
+                    {leftImageSrc ? (
+                      <div className="relative w-full h-full max-h-[290px] flex items-center justify-center p-2">
+                        <Image
+                          src={leftImageSrc}
+                          alt={leftSubtitle}
+                          fill
+                          className="object-contain drop-shadow-[0_15px_30px_rgba(2,132,199,0.22)] group-hover:scale-105 transition-transform duration-700"
+                          priority
+                          sizes="(max-width: 768px) 100vw, 550px"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-sky-600 gap-2">
+                        <div className="w-24 h-24 rounded-2xl bg-sky-100/90 flex items-center justify-center text-3xl font-black shadow-lg">
+                          360°
+                        </div>
+                        <span className="text-xs sm:text-sm font-bold text-slate-600">360° Sonic Otomatik Seri</span>
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="relative z-10 pt-3 flex items-center justify-between gap-3 border-t border-sky-100/80">
+                <Link
+                  href={leftCtaUrl}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 sm:px-9 sm:py-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase transition-all duration-300 shadow-lg shadow-sky-600/25 hover:scale-105 active:scale-95 cursor-pointer"
+                >
+                  <FiArrowRight className="w-4 h-4" />
+                  <span>{t.showcase.viewProducts}</span>
+                </Link>
+
                 {leftProducts.length > 1 && (
-                  <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full border border-sky-100 shadow-2xs">
-                    {leftProducts.map((_, dotIdx) => (
-                      <button
-                        key={dotIdx}
-                        onClick={() => setLeftIndex(dotIdx)}
-                        className={`transition-all duration-300 rounded-full ${
-                          leftIndex === dotIdx ? 'w-5 h-2 bg-sky-600' : 'w-2 h-2 bg-slate-300 hover:bg-slate-400'
-                        }`}
-                        aria-label={`Ürün ${dotIdx + 1}`}
-                      />
-                    ))}
+                  <div className="hidden sm:flex items-center gap-1">
+                    <button
+                      onClick={() => setLeftIndex((prev) => (prev - 1 + leftProducts.length) % leftProducts.length)}
+                      className="p-2.5 rounded-full bg-white text-slate-700 hover:text-sky-600 hover:bg-sky-50 border border-sky-100 transition-colors shadow-2xs"
+                      aria-label="Önceki Ürün"
+                    >
+                      <FiChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setLeftIndex((prev) => (prev + 1) % leftProducts.length)}
+                      className="p-2.5 rounded-full bg-white text-slate-700 hover:text-sky-600 hover:bg-sky-50 border border-sky-100 transition-colors shadow-2xs"
+                      aria-label="Sonraki Ürün"
+                    >
+                      <FiChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
               </div>
-
-              {/* Subtitle / Big Category Title */}
-              <h2 className="text-2xl sm:text-3xl lg:text-3.5xl xl:text-4xl font-black text-slate-900 tracking-tight leading-tight mb-1">
-                {leftSubtitle}
-              </h2>
-
-              {/* 360° Circular Dynamic Badge / Title */}
-              <div className="relative inline-flex items-center gap-3 my-1">
-                <div className="relative flex items-center justify-center">
-                  <div className="text-3xl sm:text-4xl lg:text-4.5xl font-black text-sky-600 tracking-tighter">
-                    360°
-                  </div>
-                  <div className="absolute -inset-1.5 border-2 border-dashed border-sky-400 rounded-full animate-spin-slow opacity-60 pointer-events-none" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs sm:text-sm font-black text-slate-900 tracking-wider uppercase leading-tight">
-                    {t.showcase.leftHighlight}
-                  </span>
-                  <span className="text-xs sm:text-sm font-black text-slate-700 tracking-wider uppercase leading-tight">
-                    {t.showcase.leftHighlightSub}
-                  </span>
-                </div>
-              </div>
-
-              {/* Description */}
-              <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed max-w-md mt-0.5 line-clamp-2">
-                {leftDesc}
-              </p>
             </div>
 
-            {/* ======================================================== */}
-            {/* HERO PRODUCT VISUAL: COMPACT SCALED (Fully Visible)     */}
-            {/* ======================================================== */}
-            <div className="relative z-10 my-2 sm:my-3 flex items-center justify-center min-h-[190px] sm:min-h-[240px] lg:min-h-[270px] xl:min-h-[300px]">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentLeft?.id || leftIndex}
-                  initial={{ opacity: 0, scale: 0.92, y: 15 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.94, y: -10 }}
-                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-                  className="relative w-full h-[180px] sm:h-[230px] lg:h-[260px] xl:h-[290px] flex items-center justify-center"
-                >
-                  {/* Decorative Sonic Splash Halo Behind Hero Brush */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
-                    <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-72 lg:h-72 xl:w-80 xl:h-80 rounded-full border-2 border-sky-200/60 bg-gradient-to-tr from-sky-100/50 via-white to-sky-50/30 shadow-inner" />
-                  </div>
+            {/* CENTER DIVIDER */}
+            <div className="hidden lg:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex-col items-center pointer-events-none">
+              <div className="w-1 h-32 bg-gradient-to-b from-sky-400/80 via-sky-500 to-slate-400 rounded-full" />
+              <div className="my-2 w-14 h-14 rounded-full bg-white border-3 border-slate-200 shadow-xl flex items-center justify-center text-slate-800 font-black text-xs uppercase tracking-widest pointer-events-auto hover:scale-110 transition-transform duration-300 ring-4 ring-sky-50">
+                {t.showcase.or}
+              </div>
+              <div className="w-1 h-32 bg-gradient-to-b from-slate-400 via-emerald-500 to-emerald-400/80 rounded-full" />
+            </div>
 
-                  {leftImageSrc ? (
-                    <div className="relative w-full h-full max-h-[290px] flex items-center justify-center p-2">
-                      <Image
-                        src={leftImageSrc}
-                        alt={leftSubtitle}
-                        fill
-                        className="object-contain drop-shadow-[0_15px_30px_rgba(2,132,199,0.22)] group-hover:scale-105 transition-transform duration-700"
-                        priority
-                        sizes="(max-width: 768px) 100vw, 550px"
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-sky-600 gap-2">
-                      <div className="w-24 h-24 rounded-2xl bg-sky-100/90 flex items-center justify-center text-3xl font-black shadow-lg">
-                        360°
-                      </div>
-                      <span className="text-xs sm:text-sm font-bold text-slate-600">360° Sonic Otomatik Seri</span>
+            {/* RIGHT COLUMN */}
+            <div
+              onMouseEnter={() => setRightPaused(true)}
+              onMouseLeave={() => setRightPaused(false)}
+              onTouchStart={() => setRightPaused(true)}
+              onTouchEnd={() => setRightPaused(false)}
+              className="group relative bg-gradient-to-br from-white via-emerald-50/50 to-teal-50/40 rounded-3xl sm:rounded-[2.25rem] p-5 sm:p-7 xl:p-8 border-2 border-emerald-100/90 shadow-md hover:shadow-2xl hover:shadow-emerald-100/80 transition-all duration-500 flex flex-col justify-between overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-200/40 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700" />
+
+              <div className="relative z-10">
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <span className="text-[11px] sm:text-xs font-black tracking-wider text-emerald-600 uppercase bg-emerald-100/80 px-3 py-1 rounded-full border border-emerald-200/60">
+                    {rightBadge}
+                  </span>
+
+                  {rightProducts.length > 1 && (
+                    <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full border border-emerald-100 shadow-2xs">
+                      {rightProducts.map((_, dotIdx) => (
+                        <button
+                          key={dotIdx}
+                          onClick={() => setRightIndex(dotIdx)}
+                          className={`transition-all duration-300 rounded-full ${
+                            rightIndex === dotIdx ? 'w-5 h-2 bg-emerald-600' : 'w-2 h-2 bg-slate-300 hover:bg-slate-400'
+                          }`}
+                          aria-label={`Ürün ${dotIdx + 1}`}
+                        />
+                      ))}
                     </div>
                   )}
-
-                {/* Price Tag Overlay REMOVED per design spec – showcase = category explorer, not direct buy */}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-
-            {/* Left Column Bottom Action: "Ürünleri Gör" → Category page */}
-            <div className="relative z-10 pt-3 flex items-center justify-between gap-3 border-t border-sky-100/80">
-              <Link
-                href={leftCtaUrl}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 sm:px-9 sm:py-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase transition-all duration-300 shadow-lg shadow-sky-600/25 hover:scale-105 active:scale-95 cursor-pointer"
-              >
-                <FiArrowRight className="w-4 h-4" />
-                <span>{t.showcase.viewProducts}</span>
-              </Link>
-
-              {/* Prev / Next manual controls */}
-              {leftProducts.length > 1 && (
-                <div className="hidden sm:flex items-center gap-1">
-                  <button
-                    onClick={() => setLeftIndex((prev) => (prev - 1 + leftProducts.length) % leftProducts.length)}
-                    className="p-2.5 rounded-full bg-white text-slate-700 hover:text-sky-600 hover:bg-sky-50 border border-sky-100 transition-colors shadow-2xs"
-                    aria-label="Önceki Ürün"
-                  >
-                    <FiChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setLeftIndex((prev) => (prev + 1) % leftProducts.length)}
-                    className="p-2.5 rounded-full bg-white text-slate-700 hover:text-sky-600 hover:bg-sky-50 border border-sky-100 transition-colors shadow-2xs"
-                    aria-label="Sonraki Ürün"
-                  >
-                    <FiChevronRight className="w-4 h-4" />
-                  </button>
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* ======================================================== */}
-          {/* CENTER DIVIDER: "VEYA" (Single Connected Composition)    */}
-          {/* ======================================================== */}
-          <div className="hidden lg:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex-col items-center pointer-events-none">
-            <div className="w-1 h-32 bg-gradient-to-b from-sky-400/80 via-sky-500 to-slate-400 rounded-full" />
-            <div className="my-2 w-14 h-14 rounded-full bg-white border-3 border-slate-200 shadow-xl flex items-center justify-center text-slate-800 font-black text-xs uppercase tracking-widest pointer-events-auto hover:scale-110 transition-transform duration-300 ring-4 ring-sky-50">
-              {t.showcase.or}
-            </div>
-            <div className="w-1 h-32 bg-gradient-to-b from-slate-400 via-emerald-500 to-emerald-400/80 rounded-full" />
-          </div>
+                <h2 className="text-2xl sm:text-3xl lg:text-3.5xl xl:text-4xl font-black text-slate-900 tracking-tight leading-tight mb-1">
+                  {rightSubtitle}
+                </h2>
 
-          {/* ======================================================== */}
-          {/* 2. RIGHT COLUMN: KULLAN AT DİŞ FIRÇASI (Green / White)   */}
-          {/* ======================================================== */}
-          <div
-            onMouseEnter={() => setRightPaused(true)}
-            onMouseLeave={() => setRightPaused(false)}
-            onTouchStart={() => setRightPaused(true)}
-            onTouchEnd={() => setRightPaused(false)}
-            className="group relative bg-gradient-to-br from-white via-emerald-50/50 to-teal-50/40 rounded-3xl sm:rounded-[2.25rem] p-5 sm:p-7 xl:p-8 border-2 border-emerald-100/90 shadow-md hover:shadow-2xl hover:shadow-emerald-100/80 transition-all duration-500 flex flex-col justify-between overflow-hidden"
-          >
-            {/* Ambient Lighting Background */}
-            <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-200/40 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700" />
+                <div className="relative inline-flex flex-col my-1">
+                  <span className="text-base sm:text-lg lg:text-xl font-black text-emerald-600 tracking-tight uppercase leading-tight">
+                    {t.showcase.rightHighlight}
+                  </span>
+                  <span className="text-base sm:text-lg lg:text-xl font-black text-slate-800 tracking-tight uppercase leading-tight">
+                    {t.showcase.rightHighlightSub}
+                  </span>
+                </div>
 
-            {/* Right Header Info */}
-            <div className="relative z-10">
-              <div className="flex items-center justify-between gap-3 mb-1.5">
-                <span className="text-[11px] sm:text-xs font-black tracking-wider text-emerald-600 uppercase bg-emerald-100/80 px-3 py-1 rounded-full border border-emerald-200/60">
-                  {rightBadge}
-                </span>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed max-w-md mt-0.5 line-clamp-2">
+                  {rightDesc}
+                </p>
+              </div>
 
-                {/* Dots indicator for rotation */}
+              <div className="relative z-10 my-2 sm:my-3 flex items-center justify-center min-h-[190px] sm:min-h-[240px] lg:min-h-[270px] xl:min-h-[300px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentRight?.id || rightIndex}
+                    initial={{ opacity: 0, scale: 0.92, y: 15 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.94, y: -10 }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                    className="relative w-full h-[180px] sm:h-[230px] lg:h-[260px] xl:h-[290px] flex items-center justify-center"
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
+                      <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-72 lg:h-72 xl:w-80 xl:h-80 rounded-full border-2 border-emerald-200/60 bg-gradient-to-tr from-emerald-100/50 via-white to-emerald-50/30 shadow-inner" />
+                    </div>
+
+                    {rightImageSrc ? (
+                      <div className="relative w-full h-full max-h-[290px] flex items-center justify-center p-2">
+                        <Image
+                          src={rightImageSrc}
+                          alt={rightSubtitle}
+                          fill
+                          className="object-contain drop-shadow-[0_15px_30px_rgba(16,185,129,0.22)] group-hover:scale-105 transition-transform duration-700"
+                          priority
+                          sizes="(max-width: 768px) 100vw, 550px"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-emerald-600 gap-2">
+                        <div className="w-24 h-24 rounded-2xl bg-emerald-100/90 flex items-center justify-center text-3xl font-black shadow-lg">
+                          🌿
+                        </div>
+                        <span className="text-xs sm:text-sm font-bold text-slate-600">Hijyenik Kullan-At Seri</span>
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="relative z-10 pt-3 flex items-center justify-between gap-3 border-t border-emerald-100/80">
+                <Link
+                  href={rightCtaUrl}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 sm:px-9 sm:py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase transition-all duration-300 shadow-lg shadow-emerald-600/25 hover:scale-105 active:scale-95 cursor-pointer"
+                >
+                  <FiArrowRight className="w-4 h-4" />
+                  <span>{t.showcase.viewProducts}</span>
+                </Link>
+
                 {rightProducts.length > 1 && (
-                  <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full border border-emerald-100 shadow-2xs">
-                    {rightProducts.map((_, dotIdx) => (
-                      <button
-                        key={dotIdx}
-                        onClick={() => setRightIndex(dotIdx)}
-                        className={`transition-all duration-300 rounded-full ${
-                          rightIndex === dotIdx ? 'w-5 h-2 bg-emerald-600' : 'w-2 h-2 bg-slate-300 hover:bg-slate-400'
-                        }`}
-                        aria-label={`Ürün ${dotIdx + 1}`}
-                      />
-                    ))}
+                  <div className="hidden sm:flex items-center gap-1">
+                    <button
+                      onClick={() => setRightIndex((prev) => (prev - 1 + rightProducts.length) % rightProducts.length)}
+                      className="p-2.5 rounded-full bg-white text-slate-700 hover:text-emerald-600 hover:bg-emerald-50 border border-emerald-100 transition-colors shadow-2xs"
+                      aria-label="Önceki Ürün"
+                    >
+                      <FiChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setRightIndex((prev) => (prev + 1) % rightProducts.length)}
+                      className="p-2.5 rounded-full bg-white text-slate-700 hover:text-emerald-600 hover:bg-emerald-50 border border-emerald-100 transition-colors shadow-2xs"
+                      aria-label="Sonraki Ürün"
+                    >
+                      <FiChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
               </div>
-
-              {/* Subtitle / Big Category Title */}
-              <h2 className="text-2xl sm:text-3xl lg:text-3.5xl xl:text-4xl font-black text-slate-900 tracking-tight leading-tight mb-1">
-                {rightSubtitle}
-              </h2>
-
-              {/* Highlight Subheading */}
-              <div className="relative inline-flex flex-col my-1">
-                <span className="text-base sm:text-lg lg:text-xl font-black text-emerald-600 tracking-tight uppercase leading-tight">
-                  {t.showcase.rightHighlight}
-                </span>
-                <span className="text-base sm:text-lg lg:text-xl font-black text-slate-800 tracking-tight uppercase leading-tight">
-                  {t.showcase.rightHighlightSub}
-                </span>
-              </div>
-
-              {/* Description */}
-              <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed max-w-md mt-0.5 line-clamp-2">
-                {rightDesc}
-              </p>
-            </div>
-
-            {/* ======================================================== */}
-            {/* HERO PRODUCT VISUAL: COMPACT SCALED (Fully Visible)     */}
-            {/* ======================================================== */}
-            <div className="relative z-10 my-2 sm:my-3 flex items-center justify-center min-h-[190px] sm:min-h-[240px] lg:min-h-[270px] xl:min-h-[300px]">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentRight?.id || rightIndex}
-                  initial={{ opacity: 0, scale: 0.92, y: 15 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.94, y: -10 }}
-                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-                  className="relative w-full h-[180px] sm:h-[230px] lg:h-[260px] xl:h-[290px] flex items-center justify-center"
-                >
-                  {/* Decorative Glow Halo Behind Disposable Brushes */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-85">
-                    <div className="w-48 h-48 sm:w-64 sm:h-64 lg:w-72 lg:h-72 xl:w-80 xl:h-80 rounded-full border-2 border-emerald-200/60 bg-gradient-to-tr from-emerald-100/50 via-white to-emerald-50/30 shadow-inner" />
-                  </div>
-
-                  {rightImageSrc ? (
-                    <div className="relative w-full h-full max-h-[290px] flex items-center justify-center p-2">
-                      <Image
-                        src={rightImageSrc}
-                        alt={rightSubtitle}
-                        fill
-                        className="object-contain drop-shadow-[0_15px_30px_rgba(16,185,129,0.22)] group-hover:scale-105 transition-transform duration-700"
-                        priority
-                        sizes="(max-width: 768px) 100vw, 550px"
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-emerald-600 gap-2">
-                      <div className="w-24 h-24 rounded-2xl bg-emerald-100/90 flex items-center justify-center text-3xl font-black shadow-lg">
-                        🌿
-                      </div>
-                      <span className="text-xs sm:text-sm font-bold text-slate-600">Hijyenik Kullan-At Seri</span>
-                    </div>
-                  )}
-
-                {/* Price Tag Overlay REMOVED per design spec – showcase = category explorer, not direct buy */}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-
-            {/* Right Column Bottom Action: "Ürünleri Gör" → Category page */}
-            <div className="relative z-10 pt-3 flex items-center justify-between gap-3 border-t border-emerald-100/80">
-              <Link
-                href={rightCtaUrl}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 sm:px-9 sm:py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase transition-all duration-300 shadow-lg shadow-emerald-600/25 hover:scale-105 active:scale-95 cursor-pointer"
-              >
-                <FiArrowRight className="w-4 h-4" />
-                <span>{t.showcase.viewProducts}</span>
-              </Link>
-
-              {/* Prev / Next manual controls */}
-              {rightProducts.length > 1 && (
-                <div className="hidden sm:flex items-center gap-1">
-                  <button
-                    onClick={() => setRightIndex((prev) => (prev - 1 + rightProducts.length) % rightProducts.length)}
-                    className="p-2.5 rounded-full bg-white text-slate-700 hover:text-emerald-600 hover:bg-emerald-50 border border-emerald-100 transition-colors shadow-2xs"
-                    aria-label="Önceki Ürün"
-                  >
-                    <FiChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setRightIndex((prev) => (prev + 1) % rightProducts.length)}
-                    className="p-2.5 rounded-full bg-white text-slate-700 hover:text-emerald-600 hover:bg-emerald-50 border border-emerald-100 transition-colors shadow-2xs"
-                    aria-label="Sonraki Ürün"
-                  >
-                    <FiChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
             </div>
           </div>
+        ) : null}
 
-        </div>
+        {/* ======================================================== */}
+        {/* 2. DYNAMIC ACTIVE CATEGORIES BAR (Synced with Firestore) */}
+        {/* ======================================================== */}
+        {!categoriesLoading && activeCategories.length > 0 && (
+          <div className="mt-6 max-w-6xl mx-auto">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
+              {activeCategories.map((cat) => {
+                const catTitle = getLocalizedText(cat.name as any, cat.name)
+                const catHref = buildCategoryUrl(cat, getLocalizedPath('/urunler'))
+                return (
+                  <Link
+                    key={cat.id || cat.slug}
+                    href={catHref}
+                    className="group inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-xs sm:text-sm font-bold text-slate-700 hover:text-sky-700 shadow-2xs transition-all"
+                  >
+                    {cat.image ? (
+                      <img
+                        src={cat.image}
+                        alt={catTitle}
+                        className="w-5 h-5 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <FiTag className="w-3.5 h-3.5 text-sky-600 flex-shrink-0" />
+                    )}
+                    <span>{catTitle}</span>
+                    <FiArrowRight className="w-3 h-3 text-slate-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition-all" />
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* 3. PREMIUM INTERACTIVE VALUE PROPOSITIONS & HERO CTA                     */}
         {/* ========================================================================= */}
         <div className="mt-6 sm:mt-8 max-w-6xl mx-auto relative z-20">
-          
           {/* 5 Distinct Luxury Feature & Benefit Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
-            
             {/* Card 1: Daha Sağlıklı Dişler */}
             <div className="group relative bg-gradient-to-b from-white via-sky-50/40 to-blue-50/30 rounded-2xl p-4 sm:p-4.5 border-2 border-sky-100 hover:border-sky-300 shadow-sm hover:shadow-xl hover:shadow-sky-100/70 transition-all duration-300 flex flex-col justify-between overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-sky-200/30 rounded-full blur-xl pointer-events-none -mr-6 -mt-6 group-hover:scale-125 transition-transform duration-500" />
@@ -701,8 +995,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                   {t.features.f1Desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Animated Accent Bar */}
               <div className="mt-3.5 h-1 w-8 bg-sky-400 rounded-full group-hover:w-full transition-all duration-500" />
             </div>
 
@@ -727,8 +1019,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                   {t.features.f2Desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Animated Accent Bar */}
               <div className="mt-3.5 h-1 w-8 bg-emerald-400 rounded-full group-hover:w-full transition-all duration-500" />
             </div>
 
@@ -753,8 +1043,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                   {t.features.f3Desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Animated Accent Bar */}
               <div className="mt-3.5 h-1 w-8 bg-amber-400 rounded-full group-hover:w-full transition-all duration-500" />
             </div>
 
@@ -765,7 +1053,7 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <span className="text-[9px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-100/90 px-2 py-0.5 rounded-md border border-indigo-200/60 flex items-center gap-1">
                     <FiZap className="w-2.5 h-2.5" />
-                    PORTATİF & HİJYENİK
+                    PORTATİF &amp; HİJYENİK
                   </span>
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/25 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300">
                     <AirplaneIcon className="w-5 h-5" />
@@ -779,8 +1067,6 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                   {t.features.f4Desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Animated Accent Bar */}
               <div className="mt-3.5 h-1 w-8 bg-indigo-400 rounded-full group-hover:w-full transition-all duration-500" />
             </div>
 
@@ -805,11 +1091,8 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
                   {t.features.f5Desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Animated Accent Bar */}
               <div className="mt-3.5 h-1 w-8 bg-rose-400 rounded-full group-hover:w-full transition-all duration-500" />
             </div>
-
           </div>
 
           {/* Glowing Center Hero CTA Button */}
@@ -818,15 +1101,12 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
               href={getLocalizedPath('/urunler')}
               className="group relative inline-flex items-center justify-center gap-3 px-10 py-4 bg-gradient-to-r from-sky-600 via-blue-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 text-white rounded-full font-black text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-blue-600/30 hover:shadow-2xl hover:shadow-blue-600/40 hover:scale-103 active:scale-98 transition-all duration-300 overflow-hidden"
             >
-              {/* Shimmer light effect across button */}
               <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
-
               <FiShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform" />
               <span>{t.showcase.bottomBarCta}</span>
               <FiArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
 
-            {/* Trust Mini-Highlights Row */}
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-[11px] sm:text-xs font-bold text-slate-500 select-none">
               <span className="flex items-center gap-1.5">
                 <span className="text-emerald-600">🚚</span> Aynı Gün Kargo Teslimatı
@@ -837,13 +1117,11 @@ export default function HomeShowcase({ products = [], loading = false }: HomeSho
               </span>
               <span className="hidden sm:inline text-slate-300">•</span>
               <span className="flex items-center gap-1.5">
-                <span className="text-emerald-600">💚</span> %100 Hijyen & Memnuniyet Güvencesi
+                <span className="text-emerald-600">💚</span> %100 Hijyen &amp; Memnuniyet Güvencesi
               </span>
             </div>
           </div>
-
         </div>
-
       </div>
     </section>
   )

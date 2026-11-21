@@ -17,12 +17,15 @@ import {
   FiFeather,
   FiArrowRight,
   FiShield,
+  FiTag,
 } from 'react-icons/fi'
 import { getCurrentUser, logoutUser, onUserAuthStateChanged } from '@/lib/firebase/userAuth'
 import { getCartItemCount } from '@/lib/utils/cart'
 import SearchModal from '@/components/search/SearchModal'
 
 import { useLocale } from '@/context/LocaleContext'
+import { useCategories } from '@/context/CategoriesContext'
+import { buildCategoryUrl } from '@/lib/firebase/categories'
 import { subscribeToBrandLogos, BrandLogoConfig } from '@/lib/firebase/content'
 import { SupportedLocale } from '@/lib/i18n/dictionaries'
 
@@ -34,7 +37,8 @@ interface SiteSettings {
 export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
-  const { locale, setLocale, currency, setCurrency, currencyConfig, t, getLocalizedPath } = useLocale()
+  const { locale, setLocale, currency, setCurrency, currencyConfig, t, getLocalizedText, getLocalizedPath } = useLocale()
+  const { activeCategories, loading: categoriesLoading } = useCategories()
 
   const [isOpen, setIsOpen] = useState(false)
   const [siteName, setSiteName] = useState('GÜLÜMSE')
@@ -502,40 +506,68 @@ export default function Navbar() {
                       initial={{ opacity: 0, y: 8, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-84 bg-white rounded-3xl shadow-2xl border border-slate-100 p-3.5 z-50 overflow-hidden"
+                      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-84 max-h-[70vh] overflow-y-auto bg-white rounded-3xl shadow-2xl border border-slate-100 p-3.5 z-50"
                     >
                       <div className="space-y-1.5">
-                        <Link
-                          href={`${getLocalizedPath('/urunler')}?kategori=otomatik`}
-                          onClick={() => setProductsDropdownOpen(false)}
-                          className="flex items-start gap-3.5 p-3 rounded-2xl hover:bg-sky-50 transition-colors group"
-                        >
-                          <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0">
-                            <FiZap className="w-5 h-5" />
+                        {categoriesLoading ? (
+                          <div className="space-y-2 p-2">
+                            <div className="h-12 rounded-2xl bg-slate-100 animate-pulse" />
+                            <div className="h-12 rounded-2xl bg-slate-100 animate-pulse" />
                           </div>
-                          <div>
-                            <div className="text-sm font-bold text-slate-900 group-hover:text-sky-600 flex items-center gap-1">
-                              {t.nav.automaticToothbrush}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{t.showcase.leftHighlight} 360°</p>
+                        ) : activeCategories.length > 0 ? (
+                          activeCategories.map((cat, idx) => {
+                            const catTitle = getLocalizedText(cat.name as any, cat.name)
+                            const catDesc = cat.description
+                              ? getLocalizedText(cat.description as any, cat.description)
+                              : ''
+                            const catHref = buildCategoryUrl(cat, getLocalizedPath('/urunler'))
+                            const isEven = idx % 2 === 0
+                            return (
+                              <Link
+                                key={cat.id || cat.slug}
+                                href={catHref}
+                                onClick={() => setProductsDropdownOpen(false)}
+                                className={`flex items-start gap-3.5 p-3 rounded-2xl transition-colors group ${
+                                  isEven ? 'hover:bg-sky-50' : 'hover:bg-emerald-50'
+                                }`}
+                              >
+                                <div
+                                  className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ${
+                                    isEven
+                                      ? 'bg-sky-100 text-sky-600'
+                                      : 'bg-emerald-100 text-emerald-600'
+                                  }`}
+                                >
+                                  {cat.image ? (
+                                    <img
+                                      src={cat.image}
+                                      alt={catTitle}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <FiTag className="w-5 h-5" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div
+                                    className={`text-sm font-bold text-slate-900 flex items-center gap-1 truncate ${
+                                      isEven ? 'group-hover:text-sky-600' : 'group-hover:text-emerald-600'
+                                    }`}
+                                  >
+                                    {catTitle}
+                                  </div>
+                                  {catDesc && (
+                                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{catDesc}</p>
+                                  )}
+                                </div>
+                              </Link>
+                            )
+                          })
+                        ) : (
+                          <div className="px-3 py-4 text-center text-xs text-slate-400">
+                            Aktif kategori bulunmuyor
                           </div>
-                        </Link>
-
-                        <Link
-                          href={`${getLocalizedPath('/urunler')}?kategori=kullan-at`}
-                          onClick={() => setProductsDropdownOpen(false)}
-                          className="flex items-start gap-3.5 p-3 rounded-2xl hover:bg-emerald-50 transition-colors group"
-                        >
-                          <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                            <FiFeather className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-slate-900 group-hover:text-emerald-600 flex items-center gap-1">
-                              {t.nav.disposableToothbrush}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{t.showcase.rightHighlight}</p>
-                          </div>
-                        </Link>
+                        )}
 
                         <Link
                           href={getLocalizedPath('/urunler')}
@@ -694,24 +726,36 @@ export default function Navbar() {
                 {/* Products submenu */}
                 <div className="rounded-xl bg-slate-50 overflow-hidden">
                   <p className="px-3 pt-2.5 pb-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{t.nav.products}</p>
-                  <Link
-                    href={`${getLocalizedPath('/urunler')}?kategori=otomatik`}
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:text-sky-600 hover:bg-white transition-colors"
-                  >
-                    <FiZap className="w-4 h-4 text-sky-600 flex-shrink-0" />
-                    {t.nav.automaticToothbrush}
-                    <FiArrowRight className="w-3.5 h-3.5 ml-auto text-slate-300" />
-                  </Link>
-                  <Link
-                    href={`${getLocalizedPath('/urunler')}?kategori=kullan-at`}
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:text-emerald-600 hover:bg-white transition-colors"
-                  >
-                    <FiFeather className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    {t.nav.disposableToothbrush}
-                    <FiArrowRight className="w-3.5 h-3.5 ml-auto text-slate-300" />
-                  </Link>
+                  {categoriesLoading ? (
+                    <div className="px-3 py-2 space-y-1.5">
+                      <div className="h-8 rounded-lg bg-slate-200/70 animate-pulse" />
+                      <div className="h-8 rounded-lg bg-slate-200/70 animate-pulse" />
+                    </div>
+                  ) : (
+                    activeCategories.map((cat, idx) => {
+                      const catTitle = getLocalizedText(cat.name as any, cat.name)
+                      const catHref = buildCategoryUrl(cat, getLocalizedPath('/urunler'))
+                      const isEven = idx % 2 === 0
+                      return (
+                        <Link
+                          key={cat.id || cat.slug}
+                          href={catHref}
+                          onClick={() => setIsOpen(false)}
+                          className={`flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white transition-colors ${
+                            isEven ? 'hover:text-sky-600' : 'hover:text-emerald-600'
+                          }`}
+                        >
+                          <FiTag
+                            className={`w-4 h-4 flex-shrink-0 ${
+                              isEven ? 'text-sky-600' : 'text-emerald-600'
+                            }`}
+                          />
+                          <span className="truncate">{catTitle}</span>
+                          <FiArrowRight className="w-3.5 h-3.5 ml-auto text-slate-300 flex-shrink-0" />
+                        </Link>
+                      )
+                    })
+                  )}
                   <Link
                     href={getLocalizedPath('/urunler')}
                     onClick={() => setIsOpen(false)}

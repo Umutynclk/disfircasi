@@ -14,6 +14,8 @@ import {
   setDefaultUserAddress,
   UserAddress,
 } from '@/lib/firebase/userAuth'
+import { CITIES_LIST } from '@/lib/data/locations'
+import { getDistrictsForCity, validateAddressInput } from '@/lib/utils/firestoreSanitize'
 import {
   FiUser,
   FiMail,
@@ -213,6 +215,7 @@ export default function ProfilePage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false)
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null)
   const [savingAddress, setSavingAddress] = useState(false)
+  const [addressFormError, setAddressFormError] = useState<string | null>(null)
   const [addressForm, setAddressForm] = useState({
     title: 'Ev Adresim',
     type: 'both' as 'delivery' | 'billing' | 'both',
@@ -261,6 +264,7 @@ export default function ProfilePage() {
 
   const handleOpenNewAddress = () => {
     setEditingAddressId(null)
+    setAddressFormError(null)
     setAddressForm({
       title: 'Ev Adresim',
       type: 'both',
@@ -283,15 +287,16 @@ export default function ProfilePage() {
 
   const handleEditAddress = (addr: UserAddress) => {
     setEditingAddressId(addr.id)
+    setAddressFormError(null)
     setAddressForm({
-      title: addr.title,
+      title: addr.title || '',
       type: addr.type || 'both',
-      fullName: addr.fullName,
-      phone: addr.phone,
-      city: addr.city,
-      district: addr.district,
+      fullName: addr.fullName || '',
+      phone: addr.phone || '',
+      city: addr.city || '',
+      district: addr.district || '',
       neighborhood: addr.neighborhood || '',
-      address: addr.address,
+      address: addr.address || '',
       postalCode: addr.postalCode || '',
       isDefaultDelivery: Boolean(addr.isDefaultDelivery),
       isDefaultBilling: Boolean(addr.isDefaultBilling),
@@ -303,30 +308,58 @@ export default function ProfilePage() {
     setAddressModalOpen(true)
   }
 
+  const handleAddressCityChange = (selectedCity: string) => {
+    setAddressFormError(null)
+    setAddressForm((prev) => ({
+      ...prev,
+      city: selectedCity,
+      district: '',
+    }))
+  }
+
   const handleSaveAddress = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
-    if (!addressForm.fullName.trim() || !addressForm.phone.trim() || !addressForm.city.trim() || !addressForm.district.trim() || !addressForm.address.trim()) {
-      alert('Lütfen zorunlu alanları (Ad Soyad, Telefon, İl, İlçe, Adres) doldurunuz.')
+    setAddressFormError(null)
+
+    const validation = validateAddressInput(addressForm)
+    if (!validation.valid) {
+      setAddressFormError(validation.error || 'Lütfen zorunlu alanları doldurunuz.')
       return
     }
+
     setSavingAddress(true)
     try {
       const res = await saveUserAddress(
         user.uid,
         {
-          ...addressForm,
+          title: addressForm.title.trim(),
+          type: addressForm.type || 'both',
+          fullName: addressForm.fullName.trim(),
+          phone: addressForm.phone.trim(),
+          city: addressForm.city.trim(),
+          district: addressForm.district.trim(),
+          neighborhood: addressForm.neighborhood.trim(),
+          address: addressForm.address.trim(),
+          postalCode: addressForm.postalCode.trim(),
+          isDefaultDelivery: Boolean(addressForm.isDefaultDelivery),
+          isDefaultBilling: Boolean(addressForm.isDefaultDelivery || addressForm.isDefaultBilling),
+          isCorporate: Boolean(addressForm.isCorporate),
+          companyName: addressForm.companyName.trim(),
+          taxOffice: addressForm.taxOffice.trim(),
+          taxNumber: addressForm.taxNumber.trim(),
         },
         editingAddressId || undefined
       )
       if (res.success) {
         await loadAddresses(user.uid)
+        setAddressFormError(null)
         setAddressModalOpen(false)
       } else {
-        alert(res.error || 'Adres kaydedilemedi.')
+        setAddressFormError(res.error || 'Adres kaydedilemedi.')
       }
     } catch (err: any) {
-      alert(err.message || 'Adres kaydedilemedi.')
+      setAddressFormError(err?.message || 'Adres kaydedilemedi.')
     } finally {
       setSavingAddress(false)
     }
@@ -1930,7 +1963,14 @@ export default function ProfilePage() {
                 </button>
               </div>
 
-              <form onSubmit={handleSaveAddress} className="space-y-4 text-xs">
+              <form onSubmit={handleSaveAddress} noValidate className="space-y-4 text-xs">
+                {addressFormError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2">
+                    <FiAlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>{addressFormError}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">Adres Başlığı *</label>
                   <input
@@ -1938,21 +1978,27 @@ export default function ProfilePage() {
                     required
                     placeholder="Ev, İş, Yazlık..."
                     value={addressForm.title}
-                    onChange={(e) => setAddressForm({ ...addressForm, title: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium"
+                    onChange={(e) => {
+                      setAddressFormError(null)
+                      setAddressForm({ ...addressForm, title: e.target.value })
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="font-bold text-slate-700 block mb-1">Ad Soyad *</label>
+                    <label className="font-bold text-slate-700 block mb-1">Alıcı Ad Soyad *</label>
                     <input
                       type="text"
                       required
                       placeholder="Ad Soyad"
                       value={addressForm.fullName}
-                      onChange={(e) => setAddressForm({ ...addressForm, fullName: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium"
+                      onChange={(e) => {
+                        setAddressFormError(null)
+                        setAddressForm({ ...addressForm, fullName: e.target.value })
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
                     />
                   </div>
                   <div>
@@ -1962,33 +2008,91 @@ export default function ProfilePage() {
                       required
                       placeholder="05XX XXX XX XX"
                       value={addressForm.phone}
-                      onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium"
+                      onChange={(e) => {
+                        setAddressFormError(null)
+                        setAddressForm({ ...addressForm, phone: e.target.value })
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="font-bold text-slate-700 block mb-1">İl *</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      placeholder="İstanbul, Ankara, Konya..."
                       value={addressForm.city}
-                      onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium"
-                    />
+                      onChange={(e) => handleAddressCityChange(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
+                    >
+                      <option value="">İl Seçiniz</option>
+                      {addressForm.city && !CITIES_LIST.includes(addressForm.city) && (
+                        <option value={addressForm.city}>{addressForm.city}</option>
+                      )}
+                      {CITIES_LIST.map((cityName) => (
+                        <option key={cityName} value={cityName}>
+                          {cityName}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="font-bold text-slate-700 block mb-1">İlçe *</label>
+                    {(() => {
+                      const availableDistricts = getDistrictsForCity(addressForm.city)
+                      const isCitySelected = Boolean(addressForm.city.trim())
+                      return (
+                        <select
+                          required
+                          disabled={!isCitySelected}
+                          value={addressForm.district}
+                          onChange={(e) => {
+                            setAddressFormError(null)
+                            setAddressForm({ ...addressForm, district: e.target.value })
+                          }}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <option value="">
+                            {isCitySelected ? 'İlçe Seçiniz' : 'Önce il seçiniz'}
+                          </option>
+                          {addressForm.district &&
+                            isCitySelected &&
+                            !availableDistricts.includes(addressForm.district) && (
+                              <option value={addressForm.district}>{addressForm.district}</option>
+                            )}
+                          {availableDistricts.map((distName) => (
+                            <option key={distName} value={distName}>
+                              {distName}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    })()}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Mahalle</label>
                     <input
                       type="text"
-                      required
-                      placeholder="Kadıköy, Selçuklu..."
-                      value={addressForm.district}
-                      onChange={(e) => setAddressForm({ ...addressForm, district: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium"
+                      placeholder="Mahalle adı (opsiyonel)"
+                      value={addressForm.neighborhood}
+                      onChange={(e) => setAddressForm({ ...addressForm, neighborhood: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Posta Kodu</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="Örn: 34710 (opsiyonel)"
+                      value={addressForm.postalCode}
+                      onChange={(e) => setAddressForm({ ...addressForm, postalCode: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium text-sm sm:text-xs"
                     />
                   </div>
                 </div>
@@ -1996,20 +2100,45 @@ export default function ProfilePage() {
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">Açık Adres *</label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     required
-                    placeholder="Mahalle, Cadde, Sokak, Bina No, Daire..."
+                    placeholder="Cadde, Sokak, Bina No, Kat, Daire..."
                     value={addressForm.address}
-                    onChange={(e) => setAddressForm({ ...addressForm, address: e.target.value })}
-                    className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium resize-none"
+                    onChange={(e) => {
+                      setAddressFormError(null)
+                      setAddressForm({ ...addressForm, address: e.target.value })
+                    }}
+                    className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-sky-500 font-medium resize-none text-sm sm:text-xs"
                   />
                 </div>
+
+                <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(addressForm.isDefaultDelivery)}
+                    onChange={(e) =>
+                      setAddressForm({
+                        ...addressForm,
+                        isDefaultDelivery: e.target.checked,
+                        isDefaultBilling: e.target.checked ? true : addressForm.isDefaultBilling,
+                      })
+                    }
+                    className="w-4 h-4 accent-sky-600 rounded cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-bold text-slate-800 block">Varsayılan teslimat adresi yap</span>
+                    <span className="text-[11px] text-slate-500">Siparişlerinizde bu adres otomatik seçili gelir.</span>
+                  </div>
+                </label>
 
                 <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setAddressModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 cursor-pointer"
+                    onClick={() => {
+                      setAddressFormError(null)
+                      setAddressModalOpen(false)
+                    }}
+                    className="px-4 py-2.5 rounded-xl text-slate-600 font-bold hover:bg-slate-100 cursor-pointer"
                   >
                     İptal
                   </button>

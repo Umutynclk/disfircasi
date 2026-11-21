@@ -10,6 +10,11 @@ import {
 } from 'firebase/auth'
 import { getFirebaseAuth, getFirestoreDB } from '@/firebase/config'
 import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import {
+  removeUndefined,
+  validateAddressInput,
+  buildCleanAddressRecord,
+} from '@/lib/utils/firestoreSanitize'
 
 // Auth helper - client-side'da güvenli auth instance döndürür
 const getAuthInstance = (): Auth => {
@@ -272,24 +277,39 @@ export const saveUserAddress = async (
   addressId?: string
 ): Promise<{ success: boolean; address?: UserAddress; error?: string }> => {
   try {
+    if (!userId) {
+      return { success: false, error: 'Kullanıcı oturumu bulunamadı.' }
+    }
+
     const db = getFirestoreDB()
     const userRef = doc(db, 'users', userId)
     const userDoc = await getDoc(userRef)
     const now = new Date().toISOString()
-    
+
     let currentAddresses: UserAddress[] = []
     if (userDoc.exists()) {
       const data = userDoc.data() || {}
       if (Array.isArray(data.savedAddresses)) {
-        currentAddresses = [...data.savedAddresses]
+        currentAddresses = data.savedAddresses.map((addr: any) => removeUndefined(addr))
       }
     }
 
     const targetId = addressId || `addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-    const isFirstAddress = currentAddresses.length === 0
+    const existingIndex = currentAddresses.findIndex((a) => a.id === targetId)
+    const existingAddr = existingIndex >= 0 ? currentAddresses[existingIndex] : undefined
 
-    const willBeDefaultDelivery = addressData.isDefaultDelivery ?? isFirstAddress
-    const willBeDefaultBilling = addressData.isDefaultBilling ?? isFirstAddress
+    const mergedInput = existingAddr
+      ? { ...existingAddr, ...addressData }
+      : { ...addressData }
+
+    const validation = validateAddressInput(mergedInput)
+    if (!validation.valid) {
+      return { success: false, error: validation.error || 'Lütfen zorunlu adres alanlarını doldurunuz.' }
+    }
+
+    const isFirstAddress = currentAddresses.length === 0
+    const willBeDefaultDelivery = addressData.isDefaultDelivery ?? (existingAddr?.isDefaultDelivery ?? isFirstAddress)
+    const willBeDefaultBilling = addressData.isDefaultBilling ?? (existingAddr?.isDefaultBilling ?? isFirstAddress)
 
     if (willBeDefaultDelivery) {
       currentAddresses = currentAddresses.map((a) => ({
@@ -304,64 +324,36 @@ export const saveUserAddress = async (
       }))
     }
 
-    const existingIndex = currentAddresses.findIndex((a) => a.id === targetId)
-    let savedAddress: UserAddress
+    const savedAddress = buildCleanAddressRecord(mergedInput, {
+      id: targetId,
+      isDefaultDelivery: willBeDefaultDelivery,
+      isDefaultBilling: willBeDefaultBilling,
+      createdAt: existingAddr?.createdAt || now,
+      updatedAt: now,
+    }) as unknown as UserAddress
 
     if (existingIndex >= 0) {
-      savedAddress = {
-        ...currentAddresses[existingIndex],
-        ...addressData,
-        id: targetId,
-        isDefaultDelivery: willBeDefaultDelivery,
-        isDefaultBilling: willBeDefaultBilling,
-        updatedAt: now,
-      }
       currentAddresses[existingIndex] = savedAddress
     } else {
-      savedAddress = {
-        id: targetId,
-        title: addressData.title?.trim() || 'Ev Adresim',
-        type: addressData.type || 'both',
-        fullName: addressData.fullName?.trim() || '',
-        phone: addressData.phone?.trim() || '',
-        city: addressData.city?.trim() || '',
-        district: addressData.district?.trim() || '',
-        neighborhood: addressData.neighborhood?.trim() || '',
-        address: addressData.address?.trim() || '',
-        postalCode: addressData.postalCode?.trim() || '',
-        isDefaultDelivery: willBeDefaultDelivery,
-        isDefaultBilling: willBeDefaultBilling,
-        isCorporate: Boolean(addressData.isCorporate),
-        tcKimlikNo: addressData.tcKimlikNo?.trim() || '',
-        companyName: addressData.companyName?.trim() || '',
-        taxOffice: addressData.taxOffice?.trim() || '',
-        taxNumber: addressData.taxNumber?.trim() || '',
-        authorizedPerson: addressData.authorizedPerson || undefined,
-        billingAddress: addressData.billingAddress || undefined,
-        createdAt: now,
-        updatedAt: now,
-      }
       currentAddresses.push(savedAddress)
     }
 
     const defaultAddr = currentAddresses.find((a) => a.isDefaultDelivery) || currentAddresses[0]
 
-    await setDoc(
-      userRef,
-      {
-        savedAddresses: currentAddresses,
-        ...(defaultAddr
-          ? {
-              address: defaultAddr.address,
-              city: defaultAddr.city,
-              district: defaultAddr.district,
-              phone: defaultAddr.phone || addressData.phone || '',
-            }
-          : {}),
-        updatedAt: now,
-      },
-      { merge: true }
-    )
+    const firestorePayload = removeUndefined({
+      savedAddresses: currentAddresses,
+      ...(defaultAddr
+        ? {
+            address: defaultAddr.address || '',
+            city: defaultAddr.city || '',
+            district: defaultAddr.district || '',
+            phone: defaultAddr.phone || addressData.phone || '',
+          }
+        : {}),
+      updatedAt: now,
+    })
+
+    await setDoc(userRef, firestorePayload, { merge: true })
 
     return { success: true, address: savedAddress }
   } catch (error: any) {
@@ -398,14 +390,14 @@ export const deleteUserAddress = async (
 
     await setDoc(
       userRef,
-      {
+      removeUndefined({
         savedAddresses: addresses,
         address: defaultAddr?.address || '',
         city: defaultAddr?.city || '',
         district: defaultAddr?.district || '',
         phone: defaultAddr?.phone || '',
         updatedAt: new Date().toISOString(),
-      },
+      }),
       { merge: true }
     )
 
@@ -444,14 +436,14 @@ export const setDefaultUserAddress = async (
 
     await setDoc(
       userRef,
-      {
+      removeUndefined({
         savedAddresses: addresses,
         address: defaultAddr?.address || '',
         city: defaultAddr?.city || '',
         district: defaultAddr?.district || '',
         phone: defaultAddr?.phone || '',
         updatedAt: new Date().toISOString(),
-      },
+      }),
       { merge: true }
     )
 

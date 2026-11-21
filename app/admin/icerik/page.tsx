@@ -627,6 +627,19 @@ export default function ContentStudioPage() {
             </div>
 
             {/* General Showcase Settings Banner */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-xs text-amber-900">
+                <span className="font-bold block">Çoklu Kategori Vitrin Yönetimi Aktif</span>
+                <span className="text-amber-800/90">
+                  3, 4 veya daha fazla kategoriyi ana sayfa vitrininde göstermek için{' '}
+                  <a href="/admin/kategoriler" className="underline font-bold hover:text-amber-950">
+                    Admin &gt; Kategoriler
+                  </a>{' '}
+                  bölümündeki &quot;Ana Sayfa Vitrininde Göster&quot; seçeneğini kullanabilirsiniz. Aşağıdaki ayarlar vitrinde hiç kategori seçili değilken yedek olarak kullanılır.
+                </span>
+              </div>
+            </div>
+
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Genel Vitrin Ayarları</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
