@@ -375,8 +375,12 @@ function CheckoutContent() {
     fetch('/api/admin/kvkk/documents?public=true')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled && data?.success && data.documents) {
-          setKvkkDocs(data.documents)
+        if (!cancelled && data?.success && Array.isArray(data.documents)) {
+          const map = {} as Record<KvkkDocumentType, KvkkManagedDocument>
+          data.documents.forEach((docItem: KvkkManagedDocument) => {
+            if (docItem?.docType) map[docItem.docType] = docItem
+          })
+          setKvkkDocs(map)
         }
       })
       .catch(() => {})
