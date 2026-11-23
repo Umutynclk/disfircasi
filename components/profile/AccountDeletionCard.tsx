@@ -6,7 +6,6 @@ import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import {
   FiAlertTriangle,
   FiTrash2,
-  FiShield,
   FiLock,
   FiX,
   FiInfo,
@@ -15,10 +14,7 @@ import {
 import { getFirebaseAuth } from '@/firebase/config'
 import { logoutUser } from '@/lib/firebase/userAuth'
 import { clearCart } from '@/lib/utils/cart'
-import {
-  ACCOUNT_DELETION_CONFIRMATION_PHRASE,
-  DATA_RETENTION_MATRIX,
-} from '@/lib/kvkk/accountDeletion'
+import { ACCOUNT_DELETION_CONFIRMATION_PHRASE } from '@/lib/kvkk/accountDeletion'
 
 interface PreDeleteSummary {
   activeOrdersCount: number
@@ -31,7 +27,6 @@ export default function AccountDeletionCard() {
   const router = useRouter()
   const [summary, setSummary] = useState<PreDeleteSummary | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
-  const [showMatrix, setShowMatrix] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmText, setConfirmText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -179,62 +174,6 @@ export default function AccountDeletionCard() {
           </div>
         </div>
       )}
-
-      {/* KVKK Bilgilendirme Özeti */}
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5 text-xs text-slate-600">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold text-slate-800 flex items-center gap-1.5">
-            <FiShield className="w-3.5 h-3.5 text-sky-600" />
-            KVKK m. 7 ve m. 13 Kapsamında Silme &amp; Saklama Bilgilendirmesi
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowMatrix((v) => !v)}
-            className="text-[11px] font-bold text-sky-600 hover:underline cursor-pointer"
-          >
-            {showMatrix ? 'Detayları Gizle' : 'Veri Kategorilerini İncele'}
-          </button>
-        </div>
-        <ul className="space-y-1 text-[11px] leading-relaxed list-disc pl-4">
-          <li>
-            <strong>Silinecek Veriler:</strong> Firebase kimlik doğrulama hesabınız, profil bilgileriniz, kayıtlı
-            adresleriniz, sepetiniz, kullanıcı tercihleriniz ve varsa kullanıcıya özel depolama dosyalarınız.
-          </li>
-          <li>
-            <strong>Yasal Zorunlulukla Kısıtlı Saklanacak Kayıtlar:</strong> Sipariş, ödeme, fatura/muhasebe belgeleri
-            (TTK m. 82 &amp; VUK m. 253 gereği 5–10 yıl), devam eden teslimat/iade süreçleri ve KVKK rıza/ret ispat
-            kayıtları. Bu kayıtlar pazarlama amaçlı kullanılmaz.
-          </li>
-          <li>
-            <strong>Başvuru Hakları &amp; Takip:</strong> İşlem sonunda size verilen referans kodu ile KVKK m. 13
-            kapsamındaki tüm bilgi ve imha başvurularınızı <strong>info@sonrakam.com</strong> üzerinden takip
-            edebilirsiniz (en geç 30 gün içinde yazılı/elektronik yanıt verilir).
-          </li>
-        </ul>
-
-        {showMatrix && (
-          <div className="pt-2 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-2">
-            {DATA_RETENTION_MATRIX.map((cat) => (
-              <div key={cat.id} className="p-2.5 rounded-xl bg-white border border-slate-200 text-[11px] space-y-0.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-slate-800">{cat.label}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold whitespace-nowrap ${
-                      cat.action === 'delete'
-                        ? 'bg-rose-50 text-rose-700'
-                        : 'bg-amber-50 text-amber-800'
-                    }`}
-                  >
-                    {cat.actionLabel}
-                  </span>
-                </div>
-                <p className="text-slate-500">Dayanak: {cat.legalBasis}</p>
-                <p className="text-slate-500">Süre: {cat.retentionPeriod}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Hesap Silme Onay Modalı */}
       {modalOpen && (
