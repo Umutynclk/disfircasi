@@ -2,11 +2,12 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { registerUser, getCurrentUser } from '@/lib/firebase/userAuth'
-import { FiLock, FiMail, FiUser } from 'react-icons/fi'
+import { FiLock, FiMail, FiUser, FiShield, FiX } from 'react-icons/fi'
 import Link from 'next/link'
 import { useLocale } from '@/context/LocaleContext'
+import { KvkkManagedDocument, KvkkDocumentType } from '@/lib/kvkk/types'
 
 const REGISTER_TRANSLATIONS = {
   tr: {
@@ -96,7 +97,7 @@ const REGISTER_TRANSLATIONS = {
   it: {
     title: 'Crea un Account',
     subCheckout: 'Registrati per completare il tuo acquisto.',
-    subGeneral: 'Unisciti all\'esperienza di cura dentale premium.',
+    subGeneral: "Unisciti all'esperienza di cura dentale premium.",
     firstNameLabel: 'Nome *',
     firstNamePlaceholder: 'Nome',
     lastNameLabel: 'Cognome',
@@ -136,6 +137,14 @@ function RegisterContent() {
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(true)
 
+  // İsteğe bağlı rızalar (varsayılan seçili DEĞİL, üyelik için zorunlu DEĞİL)
+  const [explicitConsent, setExplicitConsent] = useState(false)
+  const [commercialConsent, setCommercialConsent] = useState(false)
+
+  // Yayımlanmış KVKK belgeleri ve modal
+  const [kvkkDocs, setKvkkDocs] = useState<Partial<Record<KvkkDocumentType, KvkkManagedDocument>>>({})
+  const [modalDocType, setModalDocType] = useState<KvkkDocumentType | null>(null)
+
   useEffect(() => {
     const checkAuth = async () => {
       const user = await getCurrentUser()
@@ -145,6 +154,19 @@ function RegisterContent() {
       setChecking(false)
     }
     checkAuth()
+
+    fetch('/api/admin/kvkk/documents?public=true')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success && Array.isArray(json.documents)) {
+          const map: Partial<Record<KvkkDocumentType, KvkkManagedDocument>> = {}
+          json.documents.forEach((d: KvkkManagedDocument) => {
+            map[d.docType] = d
+          })
+          setKvkkDocs(map)
+        }
+      })
+      .catch(() => {})
   }, [router, redirectPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -171,8 +193,62 @@ function RegisterContent() {
     }
 
     const result = await registerUser(email, password, firstName, lastName)
-    
+
     if (result.success) {
+      // Sunucu tarafında KVKK aydınlatma gösterimi ve (verildiyse) isteğe bağlı rızaları kaydet
+      try {
+        const uid = (result as any).user?.uid
+        const records: any[] = [
+          {
+            userId: uid,
+            email: email.trim().toLowerCase(),
+            eventType: 'notice_shown',
+            docType: 'kvkk_aydinlatma',
+            docVersion: kvkkDocs.kvkk_aydinlatma?.version || 1,
+            docTitle: kvkkDocs.kvkk_aydinlatma?.title || 'KVKK Aydınlatma Metni',
+            stage: 'register',
+            purpose: 'lighting_notice',
+            channel: 'web',
+          },
+        ]
+
+        if (explicitConsent) {
+          records.push({
+            userId: uid,
+            email: email.trim().toLowerCase(),
+            eventType: 'consent_granted',
+            docType: 'acik_riza',
+            docVersion: kvkkDocs.acik_riza?.version || 1,
+            docTitle: kvkkDocs.acik_riza?.title || 'Açık Rıza Metni',
+            stage: 'register',
+            purpose: 'personalized_marketing',
+            channel: 'web',
+          })
+        }
+
+        if (commercialConsent) {
+          records.push({
+            userId: uid,
+            email: email.trim().toLowerCase(),
+            eventType: 'consent_granted',
+            docType: 'ticari_ileti',
+            docVersion: kvkkDocs.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs.ticari_ileti?.title || 'Ticari Elektronik İleti İzni',
+            stage: 'register',
+            purpose: 'commercial_electronic_message',
+            channel: 'email',
+          })
+        }
+
+        await fetch('/api/consents/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ records }),
+        })
+      } catch (consentErr) {
+        console.warn('Register consent record warning (non-blocking):', consentErr)
+      }
+
       router.push(redirectPath)
       router.refresh()
     } else {
@@ -189,15 +265,17 @@ function RegisterContent() {
     )
   }
 
+  const activeModalDoc = modalDocType ? kvkkDocs[modalDocType] : null
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-50/50 via-white to-emerald-50/40 py-28 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-50/50 via-white to-emerald-50/40 py-24 sm:py-28 px-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md"
       >
-        <div className="bg-white rounded-3xl shadow-xl border border-slate-200/80 p-8 sm:p-10">
-          <div className="text-center mb-8">
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-200/80 p-6 sm:p-10">
+          <div className="text-center mb-7">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-emerald-500 flex items-center justify-center text-white font-black text-xl mx-auto mb-4 shadow-sm">
               G
             </div>
@@ -214,7 +292,7 @@ function RegisterContent() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   {loc.firstNameLabel}
@@ -254,6 +332,7 @@ function RegisterContent() {
                 <FiMail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                 <input
                   type="email"
+                  inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -299,13 +378,75 @@ function RegisterContent() {
               </div>
             </div>
 
+            {/* KVKK Aydınlatma Bilgilendirmesi (Zorunlu rıza şartı DEĞİL, bilgilendirmedir) */}
+            <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200/80 text-[11px] text-slate-700 leading-relaxed space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-sky-900">
+                <FiShield className="w-3.5 h-3.5 text-sky-600 flex-shrink-0" />
+                <span>Kişisel Verilerin Korunması (KVKK Aydınlatması)</span>
+              </div>
+              <p>
+                Üyelik işlemleriniz kapsamındaki kişisel verileriniz sözleşmenin kurulması ve ifası hukuki sebebine dayanarak işlenir. Detaylar için{' '}
+                <button
+                  type="button"
+                  onClick={() => setModalDocType('kvkk_aydinlatma')}
+                  className="text-sky-700 font-bold underline hover:text-sky-900 cursor-pointer"
+                >
+                  KVKK Aydınlatma Metni (v{kvkkDocs.kvkk_aydinlatma?.version || 1})
+                </button>{' '}
+                belgesini inceleyebilirsiniz.
+              </p>
+            </div>
+
+            {/* İsteğe Bağlı Ayrı İzin Kutuları (Varsayılan seçili DEĞİL, üyelik için zorunlu DEĞİL) */}
+            <div className="space-y-2.5 pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={explicitConsent}
+                  onChange={(e) => setExplicitConsent(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+                <span className="text-[11px] text-slate-600 leading-normal">
+                  <span className="font-semibold text-slate-800">(İsteğe bağlı)</span>{' '}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setModalDocType('acik_riza') }}
+                    className="text-sky-600 font-bold hover:underline cursor-pointer"
+                  >
+                    Açık Rıza Metni
+                  </button>{' '}
+                  kapsamında kişiselleştirilmiş ürün önerileri ve analiz faaliyetlerine açık rıza veriyorum.
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={commercialConsent}
+                  onChange={(e) => setCommercialConsent(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+                <span className="text-[11px] text-slate-600 leading-normal">
+                  <span className="font-semibold text-slate-800">(İsteğe bağlı)</span>{' '}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setModalDocType('ticari_ileti') }}
+                    className="text-sky-600 font-bold hover:underline cursor-pointer"
+                  >
+                    Ticari Elektronik İleti İzni
+                  </button>{' '}
+                  kapsamında kampanya ve indirimler hakkında e-posta / SMS almak istiyorum.
+                </span>
+              </label>
+            </div>
+
             <div className="pt-2">
               <motion.button
                 type="submit"
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 disabled={loading}
-                className="w-full py-4 bg-sky-600 hover:bg-sky-700 text-white rounded-full font-black text-xs uppercase tracking-wider transition-colors shadow-md shadow-sky-600/20 disabled:opacity-50"
+                className="w-full py-4 bg-sky-600 hover:bg-sky-700 text-white rounded-full font-black text-xs uppercase tracking-wider transition-colors shadow-md shadow-sky-600/20 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? loc.registering : loc.submitBtn}
               </motion.button>
@@ -325,6 +466,54 @@ function RegisterContent() {
           </div>
         </div>
       </motion.div>
+
+      {/* KVKK / Rıza Belge Modalı */}
+      <AnimatePresence>
+        {modalDocType && (
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => setModalDocType(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200"
+            >
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {activeModalDoc?.title || 'Yasal Bilgilendirme'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Versiyon v{activeModalDoc?.version || 1}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalDocType(null)}
+                  className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+                >
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto whitespace-pre-wrap text-xs sm:text-sm text-slate-700 leading-relaxed">
+                {activeModalDoc?.content || 'Belge içeriği yükleniyor...'}
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setModalDocType(null)}
+                  className="px-5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold cursor-pointer"
+                >
+                  Kapat
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

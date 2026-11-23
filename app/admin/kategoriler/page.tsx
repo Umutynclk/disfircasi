@@ -276,11 +276,11 @@ export default function CategoriesPage() {
   const autoCtaPreview = buildCategoryUrl({ id: editingId || '', slug: form.slug || 'kategori-slug' }, '/tr/urunler')
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Kategori &amp; Vitrin Yönetimi</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kategori &amp; Vitrin Yönetimi</h1>
           <p className="text-gray-500 mt-1 text-sm">
             Kategorileri yönetin, sıralayın ve istediğiniz sayıda kategoriyi Ana Sayfa Vitrininde gösterin.
           </p>

@@ -7,6 +7,8 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { FiInstagram, FiTwitter, FiFacebook, FiShield, FiTruck, FiRefreshCw } from 'react-icons/fi'
 import { useLocale } from '@/context/LocaleContext'
+import { useCategories } from '@/context/CategoriesContext'
+import { buildCategoryUrl } from '@/lib/firebase/categories'
 import { subscribeToLegalConfig, DEFAULT_LEGAL_CONFIG, LegalDocumentsConfig } from '@/lib/firebase/legal'
 
 interface SiteSettings {
@@ -24,6 +26,7 @@ interface SiteSettings {
 
 export default function Footer() {
   const { t, getLocalizedText, getLocalizedPath } = useLocale()
+  const { activeCategories, loading: categoriesLoading } = useCategories()
   const [mounted, setMounted] = useState(false)
 
   const [settings, setSettings] = useState<SiteSettings>({
@@ -111,33 +114,35 @@ export default function Footer() {
         </div>
 
         {/* Links Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 pb-14 border-b border-slate-800/80 text-sm">
-          {/* Products Column */}
-          <div>
-            <h4 className="text-white font-extrabold tracking-wider uppercase text-xs mb-5 text-sky-400">{t.footer.productGroups}</h4>
-            <ul className="space-y-3">
-              <li>
-                <Link href={`${getLocalizedPath('/urunler')}?kategori=otomatik`} className="hover:text-white transition-colors">
-                  {t.footer.automatic}
-                </Link>
-              </li>
-              <li>
-                <Link href={`${getLocalizedPath('/urunler')}?kategori=kullan-at`} className="hover:text-white transition-colors">
-                  {t.footer.disposable}
-                </Link>
-              </li>
-              <li>
-                <Link href={`${getLocalizedPath('/urunler')}?kategori=yedek-firca-basliklari`} className="hover:text-white transition-colors">
-                  {t.footer.refills}
-                </Link>
-              </li>
-              <li>
-                <Link href={getLocalizedPath('/urunler')} className="hover:text-white transition-colors">
-                  {t.footer.travelSets}
-                </Link>
-              </li>
-            </ul>
-          </div>
+        {(() => {
+          const showProductGroups = !categoriesLoading && activeCategories.length > 0
+          return (
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 ${
+                showProductGroups ? 'md:grid-cols-4' : 'md:grid-cols-3'
+              } gap-8 pb-14 border-b border-slate-800/80 text-sm`}
+            >
+              {/* Products Column — Dinamik Firestore Kategorileri (Kategori yoksa tamamen gizlenir) */}
+              {showProductGroups && (
+                <div>
+                  <h4 className="text-white font-extrabold tracking-wider uppercase text-xs mb-5 text-sky-400">
+                    {t.footer.productGroups}
+                  </h4>
+                  <ul className="space-y-3">
+                    {activeCategories.map((cat) => {
+                      const catTitle = getLocalizedText(cat.name as any, cat.name)
+                      const catHref = buildCategoryUrl(cat, getLocalizedPath('/urunler'))
+                      return (
+                        <li key={cat.id || cat.slug}>
+                          <Link href={catHref} className="hover:text-white transition-colors">
+                            {catTitle}
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
 
           {/* Corporate Column */}
           <div>
@@ -202,7 +207,9 @@ export default function Footer() {
               </a>
             </div>
           </div>
-        </div>
+            </div>
+          )
+        })()}
 
         {/* Legal & Payment Trust Badges (Iyzico Audit Standard) */}
         <div suppressHydrationWarning className="pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-500 border-b border-slate-900 pb-6">

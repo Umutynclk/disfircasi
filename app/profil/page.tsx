@@ -54,6 +54,7 @@ import { buildHepsiJetTrackingUrl } from '@/lib/hepsijet/tracking-url'
 import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
 import { RETURN_REASONS, ReturnReasonCode, ReturnRequest, AvailableDeliveryDate } from '@/lib/returns/types'
 import { addToCart } from '@/lib/utils/cart'
+import KvkkConsentsCard from '@/components/profile/KvkkConsentsCard'
 
 interface UserData {
   name?: string
@@ -1190,6 +1191,11 @@ export default function ProfilePage() {
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/* KVKK & İletişim İzinleri / Açık Rıza Geri Alma */}
+              <div className="pt-6 border-t border-slate-100">
+                <KvkkConsentsCard />
               </div>
             </div>
           )}

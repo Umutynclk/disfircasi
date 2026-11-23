@@ -141,17 +141,17 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Kontrol Paneli</h1>
-            <p className="text-gray-500 mt-1">
+      <div className="mb-6 sm:mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Kontrol Paneli</h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
               {new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(nowMs))}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 sm:py-2 flex-shrink-0">
             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
             Canlı Veri
           </div>
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Ana Metrik Kartları (Siparişler Ekranı ile %100 Uyumlu) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
         {[
           {
             label: 'Toplam Sipariş',
@@ -304,13 +304,13 @@ export default function AdminDashboard() {
 
               return (
                 <Link key={order.id} href="/admin/siparisler">
-                  <div className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors cursor-pointer">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${commonStatus.bg} ${commonStatus.border}`}>
+                  <div className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3.5 sm:py-4 hover:bg-gray-50 transition-colors cursor-pointer">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center border flex-shrink-0 mt-0.5 sm:mt-0 ${commonStatus.bg} ${commonStatus.border}`}>
                       <StatusIcon className={`w-4 h-4 ${commonStatus.color}`} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900 truncate">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="text-sm font-semibold text-gray-900 truncate max-w-[160px] sm:max-w-none">
                           {order.customer?.name || 'Anonim'}
                         </p>
                         {isPaid && (
@@ -319,22 +319,25 @@ export default function AdminDashboard() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-500 font-mono font-medium">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span className="text-xs text-gray-500 font-mono font-medium truncate">
                           #{order.orderNumber || order.id.slice(-8).toUpperCase()}
                         </span>
                         {order.shipping?.barcode && (
-                          <span className="text-[10px] font-mono text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                          <span className="text-[10px] font-mono text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200 truncate max-w-[150px]">
                             {order.shipping.barcode}
                           </span>
                         )}
                       </div>
+                      <span className={`inline-flex sm:hidden mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${commonStatus.bg} ${commonStatus.color} ${commonStatus.border}`}>
+                        {commonStatus.text}
+                      </span>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-gray-900">{formatPrice(order.total)}</p>
-                      <p className="text-xs text-gray-400">{formatDate(order.createdAt)}</p>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-gray-900 whitespace-nowrap">{formatPrice(order.total)}</p>
+                      <p className="text-[11px] text-gray-400 whitespace-nowrap">{formatDate(order.createdAt)}</p>
                     </div>
-                    <span className={`hidden sm:inline-flex px-2.5 py-1 rounded-full text-xs font-bold border ${commonStatus.bg} ${commonStatus.color} ${commonStatus.border}`}>
+                    <span className={`hidden sm:inline-flex px-2.5 py-1 rounded-full text-xs font-bold border flex-shrink-0 ${commonStatus.bg} ${commonStatus.color} ${commonStatus.border}`}>
                       {commonStatus.text}
                     </span>
                   </div>

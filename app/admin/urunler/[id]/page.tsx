@@ -357,22 +357,22 @@ export default function EditProductPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8"
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8"
         >
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Ürünü Düzenle</h1>
-            <p className="text-gray-600">Ürün bilgilerini güncelleyin</p>
+          <div className="mb-6 sm:mb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Ürünü Düzenle</h1>
+            <p className="text-sm text-gray-600">Ürün bilgilerini güncelleyin</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
             {/* Temel Bilgiler */}
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-gray-900">Temel Bilgiler</h2>
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Temel Bilgiler</h2>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -387,7 +387,7 @@ export default function EditProductPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Fiyat (₺) *

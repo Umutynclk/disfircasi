@@ -38,6 +38,7 @@ export default function ProductOptionsSection({ products, loading }: ProductOpti
   const { locale, t, getLocalizedText, getLocalizedPath, formatPriceWithCurrency } = useLocale()
   const { activeCategories } = useCategories()
   const [addedId, setAddedId] = useState<string | null>(null)
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({})
   const [content, setContent] = useState<any>({
     badge: null,
     title: null,
@@ -182,13 +183,15 @@ export default function ProductOptionsSection({ products, loading }: ProductOpti
 
                     {/* Product Image */}
                     <Link href={`${getLocalizedPath('/urunler')}/${product.id}`} className="relative w-full h-full block">
-                      {img ? (
+                      {img && !failedImages[product.id] ? (
                         <Image
                           src={img}
                           alt={prodTitle}
                           fill
+                          loading="lazy"
+                          onError={() => setFailedImages((prev) => ({ ...prev, [product.id]: true }))}
                           className="object-contain p-2 group-hover:scale-108 transition-transform duration-700 drop-shadow-md"
-                          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                          sizes="(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 31vw"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-300">

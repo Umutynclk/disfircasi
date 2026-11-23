@@ -554,23 +554,23 @@ export default function ContentStudioPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Top Header */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">İçerik Yönetim Stüdyosu</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">İçerik Yönetim Stüdyosu</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
             Sınırsız öğe ekleyin, sıralayın, kopyalayın ve ana sayfayı kod değiştirmeden tam dinamik yönetin.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-medium">
+        <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2 font-medium self-start sm:self-auto">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
           Canlı Firebase Senkronizasyonu Aktif
         </div>
       </div>
 
       {/* Tabs Bar */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6 p-2 overflow-x-auto">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6 p-2 overflow-x-auto scrollbar-none">
         <div className="flex gap-1.5 min-w-max">
           {TABS.map((tab) => {
             const Icon = tab.icon
@@ -579,7 +579,7 @@ export default function ContentStudioPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as ContentTab)}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
                   isActive
                     ? 'bg-primary-600 text-white shadow-sm'
                     : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -594,7 +594,7 @@ export default function ContentStudioPage() {
       </div>
 
       {/* Main Content Area */}
-      <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 sm:p-8">
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 shadow-sm p-4 sm:p-6 md:p-8">
 
         {/* ========================================================================= */}
         {/* 0. NEW DUAL SALES SHOWCASE TAB (HERO REPLACEMENT WITH DYNAMIC PRODUCTS) */}

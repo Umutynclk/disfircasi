@@ -155,37 +155,37 @@ export default function MediaLibraryPage() {
   const activeMedia = activeTab === 'images' ? images : videos
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6 lg:mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Medya Kütüphanesi</h1>
-          <p className="text-gray-600">Fotoğraf ve videolarınızı yönetin</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Medya Kütüphanesi</h1>
+          <p className="text-sm text-gray-600">Fotoğraf ve videolarınızı yönetin</p>
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 overflow-hidden">
           <div className="flex border-b border-gray-200">
             <button
               onClick={() => setActiveTab('images')}
-              className={`flex-1 px-6 py-4 font-semibold transition-colors ${
+              className={`flex-1 px-3 sm:px-6 py-3.5 sm:py-4 text-xs sm:text-sm font-semibold transition-colors ${
                 activeTab === 'images'
                   ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <FiImage className="w-5 h-5 inline-block mr-2" />
+              <FiImage className="w-4 h-4 sm:w-5 sm:h-5 inline-block mr-1.5" />
               Fotoğraflar ({images.length})
             </button>
             <button
               onClick={() => setActiveTab('videos')}
-              className={`flex-1 px-6 py-4 font-semibold transition-colors ${
+              className={`flex-1 px-3 sm:px-6 py-3.5 sm:py-4 text-xs sm:text-sm font-semibold transition-colors ${
                 activeTab === 'videos'
                   ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <FiVideo className="w-5 h-5 inline-block mr-2" />
+              <FiVideo className="w-4 h-4 sm:w-5 sm:h-5 inline-block mr-1.5" />
               Videolar ({videos.length})
             </button>
           </div>
@@ -255,21 +255,21 @@ export default function MediaLibraryPage() {
                       />
                     )}
                     
-                    {/* Overlay */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    {/* Overlay (Mobilde her zaman erişilebilir, masaüstünde hover ile) */}
+                    <div className="absolute top-2 right-2 sm:inset-0 sm:bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2">
                       <a
                         href={file.url}
                         download={file.name}
-                        className="p-2 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors"
+                        className="p-2 bg-white/95 text-gray-900 rounded-lg shadow hover:bg-gray-100 transition-colors"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <FiDownload className="w-5 h-5" />
+                        <FiDownload className="w-4 h-4 sm:w-5 sm:h-5" />
                       </a>
                       <button
                         onClick={() => handleDelete(file)}
-                        className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                        className="p-2 bg-red-500/95 text-white rounded-lg shadow hover:bg-red-600 transition-colors"
                       >
-                        <FiTrash2 className="w-5 h-5" />
+                        <FiTrash2 className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
                     </div>
 

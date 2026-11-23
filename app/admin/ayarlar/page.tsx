@@ -58,6 +58,7 @@ import {
   DEFAULT_HEPSIJET_AUTOMATION_SETTINGS,
 } from '@/lib/hepsijet/types'
 import { getCurrentUser } from '@/lib/firebase/auth'
+import KvkkManagementPanel from '@/components/admin/KvkkManagementPanel'
 
 interface SiteSettings {
   siteName: string
@@ -79,7 +80,7 @@ export default function SettingsPage() {
   const [savingLegal, setSavingLegal] = useState(false)
   const [savingHepsiJet, setSavingHepsiJet] = useState(false)
   const [syncingTCMB, setSyncingTCMB] = useState(false)
-  const [activeTab, setActiveTab] = useState<'general' | 'payment' | 'currency' | 'legal' | 'hepsijet' | 'print_agent'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'payment' | 'currency' | 'legal' | 'kvkk_management' | 'hepsijet' | 'print_agent'>('general')
   const [hepsijetSettings, setHepsijetSettings] = useState<HepsiJetSettings>(DEFAULT_HEPSIJET_SETTINGS)
   const [hasEnvCredentials, setHasEnvCredentials] = useState(false)
   const [isLiveDispatchEnabled, setIsLiveDispatchEnabled] = useState(false)
@@ -810,19 +811,19 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Site Ayarları & TCMB Kurları</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Site Ayarları &amp; TCMB Kurları</h1>
+          <p className="text-xs sm:text-sm text-gray-600 mt-1">
             Site genel bilgileri ve TCMB otomatik döviz kuru entegrasyonu
           </p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 gap-4 overflow-x-auto">
+      <div className="flex border-b border-gray-200 gap-2 sm:gap-4 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
         <button
           onClick={() => setActiveTab('general')}
           className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition-colors ${
@@ -874,6 +875,21 @@ export default function SettingsPage() {
         >
           <FiFileText className="w-4 h-4" />
           Yasal & Sözleşmeler (6502 & KVKK)
+        </button>
+
+        <button
+          onClick={() => setActiveTab('kvkk_management')}
+          className={`flex items-center gap-2 px-6 py-3 font-bold text-sm border-b-2 whitespace-nowrap transition-colors ${
+            activeTab === 'kvkk_management'
+              ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <FiShield className="w-4 h-4 text-emerald-600" />
+          <span>KVKK, Aydınlatma & Açık Rıza</span>
+          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+            6698 KVKK
+          </span>
         </button>
 
         <button
@@ -4340,6 +4356,7 @@ export default function SettingsPage() {
             </div>
           </motion.div>
         )}
+        {activeTab === 'kvkk_management' && <KvkkManagementPanel />}
       </div>
     </div>
   )

@@ -1502,16 +1502,16 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Sipariş Yönetimi & Fiş Sistemi</h1>
-          <p className="text-gray-500 mt-1">Siparişleri izleyin, otomatik/manuel onaylayın ve kargo fişi yazdırın</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Sipariş Yönetimi &amp; Fiş Sistemi</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">Siparişleri izleyin, otomatik/manuel onaylayın ve kargo fişi yazdırın</p>
         </div>
 
         {/* Order Intake Mode Setting Toggles */}
-        <div className="flex flex-wrap items-center gap-3 bg-white p-2.5 rounded-2xl border border-gray-200 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-white p-2 sm:p-2.5 rounded-2xl border border-gray-200 shadow-xs">
           
           {/* Auto Approve Mode Button */}
           <button

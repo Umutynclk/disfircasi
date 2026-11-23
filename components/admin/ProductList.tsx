@@ -169,8 +169,141 @@ export default function ProductList() {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
+    <div>
+      {/* Mobile Card View (< md) */}
+      <div className="md:hidden divide-y divide-gray-100">
+        {products.map((product) => (
+          <div key={product.id} className="p-4 space-y-3 bg-white">
+            <div className="flex items-start gap-3">
+              {getProductImage(product) ? (
+                <img
+                  src={getProductImage(product)}
+                  alt={product.name}
+                  className="w-16 h-16 object-cover rounded-xl flex-shrink-0 border border-gray-100"
+                />
+              ) : (
+                <div className="w-16 h-16 bg-gradient-to-br from-primary-100 to-primary-200 rounded-xl flex items-center justify-center text-2xl flex-shrink-0">
+                  🦷
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">{product.name}</p>
+                <span className="inline-block mt-1 px-2.5 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                  {product.category || 'Genel'}
+                </span>
+                <div className="mt-1.5">
+                  {editingId === product.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                        className="w-28 px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm"
+                        autoFocus
+                      />
+                      <span className="text-sm text-gray-500">₺</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-gray-900">
+                        {product.price.toLocaleString('tr-TR')} ₺
+                      </span>
+                      {product.discountPrice && (
+                        <span className="text-xs font-semibold text-orange-600">
+                          İndirimli: {product.discountPrice.toLocaleString('tr-TR')} ₺
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                {editingId === product.id ? (
+                  <button
+                    onClick={() => setEditStock(!editStock)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                      editStock ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {editStock ? 'Stokta' : 'Yok'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleToggleStock(product.id, product.inStock ?? false)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                      product.inStock ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {product.inStock ? 'Stokta' : 'Yok'}
+                  </button>
+                )}
+
+                <button
+                  onClick={() => handleTogglePopular(product.id, product.isPopular ?? false)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                    product.isPopular ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {product.isPopular ? '⭐ Popüler' : 'Popüler Yap'}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {editingId === product.id ? (
+                  <>
+                    <button
+                      onClick={() => handleQuickUpdate(product.id)}
+                      disabled={updating === product.id}
+                      className="p-2.5 text-green-600 bg-green-50 rounded-lg disabled:opacity-50"
+                      title="Kaydet"
+                    >
+                      <FiSave className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="p-2.5 text-gray-600 bg-gray-100 rounded-lg"
+                      title="İptal"
+                    >
+                      <FiX className="w-4 h-4" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link href={`/urunler/${product.id}`} className="p-2.5 text-gray-600 hover:bg-gray-100 rounded-lg" title="Görüntüle">
+                      <FiEye className="w-4 h-4" />
+                    </Link>
+                    <button
+                      onClick={() => startEdit(product)}
+                      className="p-2.5 text-blue-600 bg-blue-50 rounded-lg"
+                      title="Hızlı Düzenle"
+                    >
+                      <FiEdit className="w-4 h-4" />
+                    </button>
+                    <Link href={`/admin/urunler/${product.id}`} className="px-2.5 py-2 text-xs font-semibold text-purple-700 bg-purple-50 rounded-lg">
+                      Düzenle
+                    </Link>
+                    <button
+                      onClick={() => handleDelete(product.id)}
+                      className="p-2.5 text-red-600 bg-red-50 rounded-lg"
+                      title="Sil"
+                    >
+                      <FiTrash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop Table View (md ve üzeri birebir korunur) */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="w-full">
         <thead>
           <tr className="border-b border-gray-200">
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Ürün</th>
@@ -329,6 +462,7 @@ export default function ProductList() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

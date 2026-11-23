@@ -1,15 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { collection, query, where, getDocs, limit, onSnapshot } from 'firebase/firestore'
+import dynamic from 'next/dynamic'
+import { collection, onSnapshot } from 'firebase/firestore'
 import { getFirestoreDB } from '@/firebase/config'
 
-// Clean E-Commerce Sections
+// Above-the-fold LCP sections (eagerly loaded)
 import HomeShowcase from '@/components/home/HomeShowcase'
 import ProductOptionsSection, { ShowcaseProductItem } from '@/components/home/ProductOptionsSection'
-import EditorialPromoSection from '@/components/home/EditorialPromoSection'
-import WhyGulumseSection from '@/components/home/WhyGulumseSection'
-import CTASection from '@/components/home/CTASection'
+import RevealOnScroll from '@/components/common/RevealOnScroll'
+
+// Below-the-fold sections (code-split for smaller initial JS bundle, SSR preserved for SEO)
+const EditorialPromoSection = dynamic(() => import('@/components/home/EditorialPromoSection'), { ssr: true })
+const WhyGulumseSection = dynamic(() => import('@/components/home/WhyGulumseSection'), { ssr: true })
+const CTASection = dynamic(() => import('@/components/home/CTASection'), { ssr: true })
 
 export default function Home() {
   const [allProducts, setAllProducts] = useState<ShowcaseProductItem[]>([])
@@ -62,24 +66,31 @@ export default function Home() {
 
   return (
     <div className="bg-white min-h-screen">
-      {/* 01. NEW SALES SHOWCASE (Dual Column: Otomatik Diş Fırçası + Kullan At Diş Fırçası with Independent 5-Second Rotation) */}
+      {/* 01. ABOVE-THE-FOLD SHOWCASE (LCP critical - rendered immediately without hiding) */}
       <HomeShowcase products={allProducts} loading={loading} />
 
-      {/* 02. PRODUCT OPTIONS & BESTSELLERS (Real Firebase products with CartDrawer trigger) */}
-      <ProductOptionsSection products={allProducts} loading={loading} />
+      {/* 02. PRODUCT OPTIONS & BESTSELLERS */}
+      <RevealOnScroll>
+        <ProductOptionsSection products={allProducts} loading={loading} />
+      </RevealOnScroll>
 
-      {/* 03. EDITORIAL PROMOTIONAL STORIES (Commercial healthcare advice blocks) */}
-      <EditorialPromoSection
-        brushProduct={featuredProducts[0] || null}
-        refillProduct={refillProduct}
-      />
+      {/* 03. EDITORIAL PROMOTIONAL STORIES */}
+      <RevealOnScroll delayMs={40}>
+        <EditorialPromoSection
+          brushProduct={featuredProducts[0] || null}
+          refillProduct={refillProduct}
+        />
+      </RevealOnScroll>
 
-      {/* 04. BRAND VALUE PROPOSITIONS (Trust, hygiene, clinic approval) */}
-      <WhyGulumseSection />
+      {/* 04. BRAND VALUE PROPOSITIONS */}
+      <RevealOnScroll delayMs={40}>
+        <WhyGulumseSection />
+      </RevealOnScroll>
 
       {/* 05. FINAL HIGH-CONVERSION CTA */}
-      <CTASection />
+      <RevealOnScroll delayMs={40}>
+        <CTASection />
+      </RevealOnScroll>
     </div>
   )
 }
-

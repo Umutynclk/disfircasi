@@ -29,7 +29,14 @@ import {
   FiHome,
   FiBriefcase,
   FiTrash2,
+  FiChevronDown,
+  FiChevronUp,
 } from 'react-icons/fi'
+import {
+  KvkkDocumentType,
+  KvkkManagedDocument,
+  validateCheckoutLegalRequirements,
+} from '@/lib/kvkk/types'
 import { getCart, clearCart, CartItem } from '@/lib/utils/cart'
 import {
   onUserAuthStateChanged,
@@ -73,7 +80,7 @@ const CHECKOUT_TRANSLATIONS = {
     paymentSub: 'Tüm ödemeler 256-Bit SSL ve 3D Secure güvencesiyle PayTR altyapısında gerçekleşir.',
     payCard: 'Kredi / Banka Kartı (PayTR 3D Secure)',
     payHavale: 'Havale / EFT ile Ödeme',
-    submitOrder: 'Siparişi Onayla & 3D Secure ile Öde',
+    submitOrder: 'Siparişi Onayla ve Ödemeye Geç',
     submitting: 'Güvenli Ödeme Ekranı Hazırlanıyor...',
     orderSummary: 'Sipariş Özeti',
     itemsCount: 'Kalem',
@@ -88,7 +95,7 @@ const CHECKOUT_TRANSLATIONS = {
     kvkkText: 'KVKK Aydınlatma Metni\'ni ve Gizlilik ve Güvenlik Politikası\'nı okudum, kabul ediyorum.',
     alertLogin: 'Sipariş vermek için lütfen önce giriş yapın.',
     alertFill: 'Lütfen gerekli iletişim ve adres bilgilerini doldurun.',
-    alertAgreement: 'Lütfen Mesafeli Satış Sözleşmesi ve KVKK onay kutularını işaretleyin.',
+    alertAgreement: 'Siparişi tamamlamak için Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesi onayı gereklidir.',
     alertError: 'Siparişiniz oluşturulurken bir hata oluştu. Lütfen tekrar deneyin.',
   },
   en: {
@@ -330,13 +337,16 @@ function CheckoutContent() {
   const [paytrOrderNumber, setPaytrOrderNumber] = useState('')
   const [showPaytrModal, setShowPaytrModal] = useState(false)
 
-  // Legal Agreements Acceptance
+  // Legal Agreements & Separate Optional Consents (KVKK Compliant)
   const [agreementAccepted, setAgreementAccepted] = useState(false)
-  const [kvkkAccepted, setKvkkAccepted] = useState(false)
+  const [explicitConsent, setExplicitConsent] = useState(false)
+  const [commercialConsent, setCommercialConsent] = useState(false)
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false)
 
-  // Modals
-  const [activeModal, setActiveModal] = useState<'sozlesme' | 'onbilgi' | 'kvkk' | null>(null)
+  // Modals & Live Versioned KVKK Documents
+  const [activeModal, setActiveModal] = useState<'sozlesme' | 'onbilgi' | 'kvkk' | 'acik_riza' | 'ticari_ileti' | 'cerez' | null>(null)
   const [legalConfig, setLegalConfig] = useState<LegalDocumentsConfig>(DEFAULT_LEGAL_CONFIG)
+  const [kvkkDocs, setKvkkDocs] = useState<Record<KvkkDocumentType, KvkkManagedDocument> | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [orderComplete, setOrderComplete] = useState(false)
@@ -356,12 +366,24 @@ function CheckoutContent() {
   const isReturnFlow = odemeParam === 'basarili' && !!oidParam
   const isErrorReturn = odemeParam === 'hata'
 
-  // 1. Subscribe to Legal & Payment Config
+  // 1. Subscribe to Legal & Payment Config + Fetch Versioned KVKK Documents
   useEffect(() => {
     const unsubLegal = subscribeToLegalConfig((cfg) => {
       setLegalConfig(cfg)
     })
-    return () => unsubLegal()
+    let cancelled = false
+    fetch('/api/admin/kvkk/documents?public=true')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.success && data.documents) {
+          setKvkkDocs(data.documents)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      unsubLegal()
+    }
   }, [])
 
   // 2. Auth State Changed — load profile + saved addresses
@@ -686,9 +708,82 @@ function CheckoutContent() {
       }
     }
 
-    if (!agreementAccepted || !kvkkAccepted) {
-      alert(loc.alertAgreement)
+    const legalCheck = validateCheckoutLegalRequirements({
+      contractConfirmed: agreementAccepted,
+      explicitConsent,
+      commercialConsent,
+    })
+    if (!legalCheck.valid) {
+      setPaymentError(legalCheck.error || loc.alertAgreement)
       return
+    }
+
+    const recordCheckoutConsents = async (orderRef: string, idToken?: string | null) => {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (idToken) headers['Authorization'] = `Bearer ${idToken}`
+        const base = {
+          stage: 'checkout' as const,
+          userId: currentUser.uid,
+          guestOrderRef: orderRef,
+          email: currentUser.email || formData.email.trim(),
+          channel: 'web' as const,
+        }
+        const records: Array<Record<string, any>> = [
+          {
+            ...base,
+            docType: 'kvkk_aydinlatma' as KvkkDocumentType,
+            docVersion: kvkkDocs?.kvkk_aydinlatma?.version || 1,
+            docTitle: kvkkDocs?.kvkk_aydinlatma?.title,
+            eventType: 'notice_shown',
+            purpose: 'Sipariş öncesi KVKK aydınlatma bilgilendirmesi',
+          },
+          {
+            ...base,
+            docType: 'on_bilgilendirme' as KvkkDocumentType,
+            docVersion: kvkkDocs?.on_bilgilendirme?.version || 1,
+            docTitle: kvkkDocs?.on_bilgilendirme?.title,
+            eventType: 'contract_confirmed',
+            purpose: 'Ön bilgilendirme formu sözleşme teyidi',
+          },
+          {
+            ...base,
+            docType: 'mesafeli_satis' as KvkkDocumentType,
+            docVersion: kvkkDocs?.mesafeli_satis?.version || 1,
+            docTitle: kvkkDocs?.mesafeli_satis?.title,
+            eventType: 'contract_confirmed',
+            purpose: 'Mesafeli satış sözleşmesi onayı',
+          },
+        ]
+        if (explicitConsent) {
+          records.push({
+            ...base,
+            docType: 'acik_riza' as KvkkDocumentType,
+            docVersion: kvkkDocs?.acik_riza?.version || 1,
+            docTitle: kvkkDocs?.acik_riza?.title,
+            eventType: 'consent_granted',
+            purpose: 'Kişiselleştirilmiş öneri ve analiz açık rızası',
+          })
+        }
+        if (commercialConsent) {
+          records.push({
+            ...base,
+            docType: 'ticari_ileti' as KvkkDocumentType,
+            docVersion: kvkkDocs?.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs?.ticari_ileti?.title,
+            eventType: 'consent_granted',
+            purpose: 'Kampanya ve duyuru ticari elektronik ileti izni',
+            channel: 'email',
+          })
+        }
+        await fetch('/api/consents/record', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ records }),
+        })
+      } catch (consentErr) {
+        console.warn('Consent audit log warning (non-blocking):', consentErr)
+      }
     }
 
     const resolvedBillingAddress = sameAsDeliveryAddress
@@ -823,6 +918,9 @@ function CheckoutContent() {
           throw new Error(initData.error || 'PayTR ödeme oturumu başlatılamadı.')
         }
 
+        // KVKK aydınlatma gösterimi, sözleşme onayı ve varsa isteğe bağlı açık rıza/ticari ileti kaydı
+        void recordCheckoutConsents(initData.orderNumber, idToken)
+
         setPaytrToken(initData.token)
         setPaytrOrderNumber(initData.orderNumber)
         setShowPaytrModal(true)
@@ -885,7 +983,10 @@ function CheckoutContent() {
         agreementsAccepted: {
           distanceSalesAgreement: true,
           preliminaryInfoForm: true,
-          kvkkAndPrivacy: true,
+          kvkkNoticeShown: true,
+          explicitConsent,
+          commercialConsent,
+          kvkkNoticeVersion: kvkkDocs?.kvkk_aydinlatma?.version || 1,
           acceptedAt: new Date().toISOString(),
           ip: 'client_secured',
         },
@@ -896,6 +997,8 @@ function CheckoutContent() {
       }
 
       await setDoc(doc(db, 'orders', orderNumber), cleanFirestoreData(orderData))
+      const idToken = await currentUser?.getIdToken?.().catch(() => null)
+      void recordCheckoutConsents(orderNumber, idToken)
       setOrderId(orderNumber)
       setOrderComplete(true)
       clearCart()
@@ -1317,11 +1420,11 @@ function CheckoutContent() {
   }
 
   return (
-    <div className="pt-32 pb-24 min-h-screen bg-slate-50/60">
+    <div className="pt-28 sm:pt-32 pb-32 lg:pb-24 min-h-screen bg-slate-50/60 overflow-x-clip">
       <div className="container-custom max-w-6xl mx-auto px-4 sm:px-6">
 
         {/* Back Link & Header */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <Link
             href={getLocalizedPath('/sepet')}
             className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900 transition-colors bg-white px-4 py-2 rounded-xl border border-slate-200/80 shadow-xs"
@@ -1330,10 +1433,115 @@ function CheckoutContent() {
             <span>{loc.backToCart}</span>
           </Link>
           <div className="text-right">
-            <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-              🔒 256-Bit SSL & 3D Secure Korumalı
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full inline-flex items-center gap-1.5">
+              <FiLock className="w-3 h-3" />
+              256-Bit SSL &amp; 3D Secure Korumalı
             </span>
           </div>
+        </div>
+
+        {/* 3-Step Visual Progress Bar */}
+        <div className="mb-6 bg-white rounded-2xl border border-slate-200/80 p-3 sm:p-4 shadow-xs">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center sm:text-left">
+            {[
+              {
+                num: 1,
+                title: 'Teslimat & Fatura',
+                done: Boolean(formData.name.trim() && formData.phone.trim() && formData.city && formData.district && formData.address.trim() && customerType),
+              },
+              {
+                num: 2,
+                title: 'Ödeme Yöntemi',
+                done: Boolean(paymentMethod),
+              },
+              {
+                num: 3,
+                title: 'Onay & Ödeme',
+                done: agreementAccepted,
+              },
+            ].map((step) => (
+              <div key={step.num} className="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-2.5">
+                <span
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 transition-colors ${
+                    step.done
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-sky-100 text-sky-700 border border-sky-200'
+                  }`}
+                >
+                  {step.done ? <FiCheck className="w-3.5 h-3.5" /> : step.num}
+                </span>
+                <span className="text-[11px] sm:text-xs font-bold text-slate-800 leading-tight">
+                  {step.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile Collapsible Order Summary Accordion */}
+        <div className="lg:hidden mb-6 bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSummaryOpen((prev) => !prev)}
+            className="w-full px-4 py-3.5 flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-black text-slate-900">{loc.orderSummary}</span>
+              <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">
+                {cartItems.length} {loc.itemsCount}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-black text-sky-600">{formatPriceWithCurrency(totalAmount)}</span>
+              {mobileSummaryOpen ? (
+                <FiChevronUp className="w-4 h-4 text-slate-500" />
+              ) : (
+                <FiChevronDown className="w-4 h-4 text-slate-500" />
+              )}
+            </div>
+          </button>
+
+          {mobileSummaryOpen && (
+            <div className="px-4 pb-4 pt-2 border-t border-slate-100 space-y-3">
+              <div className="space-y-2.5 max-h-56 overflow-y-auto">
+                {cartItems.map((item) => {
+                  const price = item.discountPrice || item.price
+                  return (
+                    <div key={item.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-0">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-slate-50 p-1 border border-slate-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                          {item.image ? (
+                            <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
+                          ) : (
+                            <span>🦷</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 truncate">{item.name}</p>
+                          <p className="text-slate-400">{loc.qty} {item.quantity}</p>
+                        </div>
+                      </div>
+                      <span className="font-extrabold text-slate-900 ml-2 whitespace-nowrap">
+                        {formatPriceWithCurrency(price * item.quantity)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>{loc.subtotal}</span>
+                  <span className="font-bold text-slate-900">{formatPriceWithCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>{loc.shipping}</span>
+                  <span className="font-bold text-emerald-600">
+                    {shippingFee === 0 ? loc.freeShipping : formatPriceWithCurrency(shippingFee)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Payment Error Alert */}
@@ -2035,62 +2243,122 @@ function CheckoutContent() {
                 </div>
               )}
 
-              {/* Step 3: Mandatory Legal Agreements Checkboxes */}
-              <div className="pt-4 border-t border-slate-100 space-y-3">
-                <div className="space-y-1">
+              {/* Step 3: Yasal Bilgilendirme, Zorunlu Sözleşme Onayı ve İsteğe Bağlı İzinler */}
+              <div className="pt-5 border-t border-slate-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 font-black text-xs flex items-center justify-center">
+                      3
+                    </span>
+                    <span>Sözleşme ve Kişisel Veri Tercihleri</span>
+                  </h3>
+                </div>
+
+                {/* 1. KVKK Aydınlatma Bilgilendirmesi (Zorunlu onay kutusu DEĞİLDİR) */}
+                <div className="p-3.5 rounded-2xl bg-sky-50/80 border border-sky-200/80 text-xs text-slate-700 leading-relaxed flex items-start gap-2.5">
+                  <FiShield className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p>
+                      Siparişinizin oluşturulması, faturalandırılması ve teslimatı için kişisel verileriniz 6698 sayılı KVKK kapsamında işlenmektedir. Detaylı bilgi için{' '}
+                      <button
+                        type="button"
+                        onClick={() => setActiveModal('kvkk')}
+                        className="text-sky-700 font-bold underline hover:text-sky-900"
+                      >
+                        KVKK Aydınlatma Metni
+                      </button>
+                      {kvkkDocs?.kvkk_aydinlatma?.version ? (
+                        <span className="text-[10px] text-slate-500 ml-1">(v{kvkkDocs.kvkk_aydinlatma.version})</span>
+                      ) : null}
+                      {' '}ve{' '}
+                      <button
+                        type="button"
+                        onClick={() => setActiveModal('cerez')}
+                        className="text-sky-700 font-bold underline hover:text-sky-900"
+                      >
+                        Çerez Politikası
+                      </button>
+                      &apos;nı inceleyebilirsiniz.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Zorunlu Sözleşme Onayı (Ön Bilgilendirme + Mesafeli Satış) */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
                   <label className="flex items-start gap-3 cursor-pointer group select-none">
                     <input
                       type="checkbox"
                       checked={agreementAccepted}
                       onChange={(e) => setAgreementAccepted(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer flex-shrink-0"
                     />
-                    <span className="text-xs text-slate-600 leading-normal">
+                    <span className="text-xs text-slate-700 leading-relaxed">
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); setActiveModal('onbilgi') }}
-                        className="text-sky-600 font-bold hover:underline"
+                        className="text-sky-700 font-bold hover:underline"
                       >
-                        Ön Bilgilendirme Koşulları
+                        Ön Bilgilendirme Formu
                       </button>
-                      &apos;nı ve{' '}
+                      &apos;nu ve{' '}
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); setActiveModal('sozlesme') }}
-                        className="text-sky-600 font-bold hover:underline"
+                        className="text-sky-700 font-bold hover:underline"
                       >
                         Mesafeli Satış Sözleşmesi
                       </button>
-                      &apos;ni okudum, kabul ediyorum. <span className="text-rose-500">*</span>
+                      &apos;ni okudum, onaylıyorum.{' '}
+                      <span className="inline-block text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                        Zorunlu *
+                      </span>
                     </span>
                   </label>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="flex items-start gap-3 cursor-pointer group select-none">
+                {/* 3. Ayrı ve İsteğe Bağlı Açık Rıza */}
+                <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 space-y-3">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    İsteğe Bağlı İzinler (Sipariş için zorunlu değildir)
+                  </p>
+
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={kvkkAccepted}
-                      onChange={(e) => setKvkkAccepted(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                      checked={explicitConsent}
+                      onChange={(e) => setExplicitConsent(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer flex-shrink-0"
                     />
-                    <span className="text-xs text-slate-600 leading-normal">
+                    <span className="text-xs text-slate-600 leading-relaxed">
                       <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); setActiveModal('kvkk') }}
-                        className="text-sky-600 font-bold hover:underline"
+                        onClick={(e) => { e.preventDefault(); setActiveModal('acik_riza') }}
+                        className="text-slate-900 font-bold hover:underline"
                       >
-                        KVKK Aydınlatma Metni
+                        Açık Rıza Metni
                       </button>
-                      &apos;ni ve{' '}
-                      <Link
-                        href={getLocalizedPath('/gizlilik-ve-guvenlik')}
-                        target="_blank"
-                        className="text-sky-600 font-bold hover:underline"
+                      &apos;ni okudum; kişiselleştirilmiş ürün önerileri ve analiz amaçlı veri işlenmesine açık rıza veriyorum.{' '}
+                      <span className="text-[10px] text-slate-400">(İsteğe bağlı)</span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={commercialConsent}
+                      onChange={(e) => setCommercialConsent(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer flex-shrink-0"
+                    />
+                    <span className="text-xs text-slate-600 leading-relaxed">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setActiveModal('ticari_ileti') }}
+                        className="text-slate-900 font-bold hover:underline"
                       >
-                        Gizlilik & Güvenlik Politikası
-                      </Link>
-                      &apos;nı okudum, onaylıyorum. <span className="text-rose-500">*</span>
+                        Ticari Elektronik İleti İzni
+                      </button>
+                      &apos;ni okudum; kampanya, indirim ve duyurular için e-posta/SMS almayı kabul ediyorum.{' '}
+                      <span className="text-[10px] text-slate-400">(İsteğe bağlı)</span>
                     </span>
                   </label>
                 </div>
@@ -2101,11 +2369,11 @@ function CheckoutContent() {
                 <button
                   type="button"
                   onClick={handleSubmitOrder}
-                  disabled={submitting || !agreementAccepted || !kvkkAccepted}
-                  className={`w-full py-4.5 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 shadow-lg ${
-                    submitting || !agreementAccepted || !kvkkAccepted
+                  disabled={submitting || !agreementAccepted}
+                  className={`w-full py-4 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 shadow-lg ${
+                    submitting || !agreementAccepted
                       ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
-                      : 'bg-gradient-to-r from-sky-600 via-blue-600 to-sky-700 text-white shadow-sky-600/30 hover:scale-102 active:scale-98'
+                      : 'bg-gradient-to-r from-sky-600 via-blue-600 to-sky-700 text-white shadow-sky-600/30 hover:brightness-105 active:scale-[0.99]'
                   }`}
                 >
                   <FiLock className="w-4 h-4" />
@@ -2114,12 +2382,12 @@ function CheckoutContent() {
                       ? loc.submitting
                       : paymentMethod === 'card'
                       ? loc.submitOrder
-                      : 'Havale Bildirimli Siparişi Tamamla'}
+                      : 'Siparişi Onayla (Havale / EFT)'}
                   </span>
                 </button>
-                {(!agreementAccepted || !kvkkAccepted) && (
-                  <p className="text-[11px] text-amber-600 text-center mt-2 font-medium">
-                    Siparişi tamamlamak için lütfen sözleşme ve KVKK onay kutularını işaretleyin.
+                {!agreementAccepted && (
+                  <p className="text-[11px] text-amber-700 text-center mt-2 font-medium">
+                    Siparişi tamamlamak için Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesi kutusunu işaretleyin.
                   </p>
                 )}
               </div>
@@ -2127,7 +2395,7 @@ function CheckoutContent() {
 
             {/* Merchant Information Bar */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/80 text-[11px] text-slate-500 space-y-1">
-              <p className="font-bold text-slate-800 text-xs mb-1">Satıcı & Firma Yasal Bilgileri (6502 Sayılı Kanun Gereği):</p>
+              <p className="font-bold text-slate-800 text-xs mb-1">Satıcı &amp; Firma Yasal Bilgileri (6502 Sayılı Kanun Gereği):</p>
               <p><strong>Unvan:</strong> {legalConfig.company.title}</p>
               <p><strong>Adres:</strong> {legalConfig.company.address}</p>
               <p><strong>MERSİS:</strong> {legalConfig.company.mersis} | <strong>Vergi No:</strong> {legalConfig.company.taxOffice} {legalConfig.company.taxNumber}</p>
@@ -2137,8 +2405,8 @@ function CheckoutContent() {
 
           </div>
 
-          {/* Order Summary Side */}
-          <div className="lg:col-span-5 space-y-6">
+          {/* Order Summary Side (Sticky on Desktop) */}
+          <div className="lg:col-span-5 lg:sticky lg:top-28 space-y-6">
             <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
               <h3 className="text-lg font-black text-slate-900 pb-3 border-b border-slate-100 flex items-center justify-between">
                 <span>{loc.orderSummary}</span>
@@ -2349,12 +2617,15 @@ function CheckoutContent() {
               className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <FiFileText className="w-5 h-5 text-sky-600 flex-shrink-0" />
                   <h3 className="text-base sm:text-lg font-black text-slate-900 line-clamp-1">
-                    {activeModal === 'sozlesme' && legalConfig.distanceSalesAgreement.title}
-                    {activeModal === 'onbilgi' && legalConfig.preliminaryInfoForm.title}
-                    {activeModal === 'kvkk' && legalConfig.kvkkPolicy.title}
+                    {activeModal === 'sozlesme' && (kvkkDocs?.mesafeli_satis?.title || legalConfig.distanceSalesAgreement.title)}
+                    {activeModal === 'onbilgi' && (kvkkDocs?.on_bilgilendirme?.title || legalConfig.preliminaryInfoForm.title)}
+                    {activeModal === 'kvkk' && (kvkkDocs?.kvkk_aydinlatma?.title || legalConfig.kvkkPolicy.title)}
+                    {activeModal === 'acik_riza' && (kvkkDocs?.acik_riza?.title || 'Açık Rıza Metni')}
+                    {activeModal === 'ticari_ileti' && (kvkkDocs?.ticari_ileti?.title || 'Ticari Elektronik İleti İzni')}
+                    {activeModal === 'cerez' && (kvkkDocs?.cerez_politikasi?.title || 'Çerez Politikası')}
                   </h3>
                 </div>
                 <button
@@ -2376,19 +2647,37 @@ function CheckoutContent() {
 
                 {activeModal === 'sozlesme' && (
                   <div className="whitespace-pre-line text-slate-700">
-                    {legalConfig.distanceSalesAgreement.content}
+                    {kvkkDocs?.mesafeli_satis?.content || legalConfig.distanceSalesAgreement.content}
                   </div>
                 )}
 
                 {activeModal === 'onbilgi' && (
                   <div className="whitespace-pre-line text-slate-700">
-                    {legalConfig.preliminaryInfoForm.content}
+                    {kvkkDocs?.on_bilgilendirme?.content || legalConfig.preliminaryInfoForm.content}
                   </div>
                 )}
 
                 {activeModal === 'kvkk' && (
                   <div className="whitespace-pre-line text-slate-700">
-                    {legalConfig.kvkkPolicy.content}
+                    {kvkkDocs?.kvkk_aydinlatma?.content || legalConfig.kvkkPolicy.content}
+                  </div>
+                )}
+
+                {activeModal === 'acik_riza' && (
+                  <div className="whitespace-pre-line text-slate-700">
+                    {kvkkDocs?.acik_riza?.content || 'Kişiselleştirilmiş ürün önerileri ve analiz amaçlı açık rıza metni.'}
+                  </div>
+                )}
+
+                {activeModal === 'ticari_ileti' && (
+                  <div className="whitespace-pre-line text-slate-700">
+                    {kvkkDocs?.ticari_ileti?.content || 'Kampanya, indirim ve duyuru iletileri için ticari elektronik ileti bilgilendirme metni.'}
+                  </div>
+                )}
+
+                {activeModal === 'cerez' && (
+                  <div className="whitespace-pre-line text-slate-700">
+                    {kvkkDocs?.cerez_politikasi?.content || 'Zorunlu, performans ve tercih çerezlerine ilişkin bilgilendirme metni.'}
                   </div>
                 )}
               </div>
@@ -2409,6 +2698,41 @@ function CheckoutContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Mobile Sticky Bottom Summary & CTA Bar */}
+      {!showPaytrModal && !activeModal && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 shadow-2xl">
+          <div className="flex items-center justify-between gap-3 max-w-xl mx-auto">
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                {loc.total}
+              </span>
+              <span className="text-lg font-black text-sky-600 whitespace-nowrap">
+                {formatPriceWithCurrency(totalAmount)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSubmitOrder}
+              disabled={submitting || !agreementAccepted}
+              className={`flex-1 max-w-[260px] py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                submitting || !agreementAccepted
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-sky-600 hover:bg-sky-700 text-white shadow-md shadow-sky-600/30 active:scale-[0.98]'
+              }`}
+            >
+              <FiLock className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">
+                {submitting
+                  ? 'Hazırlanıyor...'
+                  : paymentMethod === 'card'
+                  ? loc.submitOrder
+                  : 'Siparişi Onayla'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   )
