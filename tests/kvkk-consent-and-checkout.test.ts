@@ -89,7 +89,9 @@ test('Checkout page separates KVKK Aydınlatma, mandatory contracts, and optiona
   assert.ok(!src.includes('!kvkkAccepted'), 'Checkout must NOT block submission on kvkkAccepted')
   assert.ok(src.includes('validateCheckoutLegalRequirements'), 'Checkout must validate legal requirements via helper')
   assert.ok(src.includes('explicitConsent'), 'Checkout must have separate explicitConsent state')
-  assert.ok(src.includes('commercialConsent'), 'Checkout must have separate commercialConsent state')
+  assert.ok(src.includes('commercialEmailConsent'), 'Checkout must have separate commercialEmailConsent state')
+  assert.ok(src.includes('commercialSmsConsent'), 'Checkout must have separate commercialSmsConsent state')
+  assert.ok(src.includes('commercialPhoneConsent'), 'Checkout must have separate commercialPhoneConsent state')
   assert.ok(src.includes('Siparişi Onayla ve Ödemeye Geç'), 'Checkout must display clear primary CTA label')
   assert.ok(src.includes('/api/consents/record'), 'Checkout must record server-side consent/notice logs')
   assert.ok(src.includes('mobileSummaryOpen'), 'Checkout must provide collapsible mobile order summary')
@@ -100,7 +102,9 @@ test('Registration page shows KVKK Aydınlatma notice and separate optional cons
   assert.ok(src.includes('/api/admin/kvkk/documents?public=true'), 'Signup must fetch published KVKK docs')
   assert.ok(src.includes('/api/consents/record'), 'Signup must log notice_shown and optional consents')
   assert.ok(src.includes('explicitConsent'), 'Signup must have optional explicitConsent')
-  assert.ok(src.includes('commercialConsent'), 'Signup must have optional commercialConsent')
+  assert.ok(src.includes('commercialEmailConsent'), 'Signup must have optional commercialEmailConsent')
+  assert.ok(src.includes('commercialSmsConsent'), 'Signup must have optional commercialSmsConsent')
+  assert.ok(src.includes('commercialPhoneConsent'), 'Signup must have optional commercialPhoneConsent')
 })
 
 test('Admin settings wires KVKK management tab and Profile wires consent withdrawal card', () => {

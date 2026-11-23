@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminFirestore } from '@/lib/firebase/admin'
+import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/admin'
 import { removeUndefined } from '@/lib/utils/firestoreSanitize'
 import {
   ConsentChannel,
@@ -9,33 +9,53 @@ import {
   KVKK_DOCUMENT_TYPES,
   KvkkDocumentType,
 } from '@/lib/kvkk/types'
+import {
+  CONSENT_PREFERENCE_META,
+  ConsentPreferenceKey,
+  resolveConsentPreferenceKey,
+} from '@/lib/kvkk/consents'
 
 const CONSENTS_COLLECTION = 'consent_records'
 
+async function tryVerifyTokenUid(req: NextRequest): Promise<{ uid: string; email?: string } | null> {
+  const authHeader = req.headers.get('authorization') || ''
+  if (!authHeader.startsWith('Bearer ')) return null
+  const token = authHeader.slice(7).trim()
+  if (!token) return null
+  try {
+    const decoded = await getAdminAuth().verifyIdToken(token)
+    return { uid: decoded.uid, email: decoded.email }
+  } catch {
+    return null
+  }
+}
+
 /**
  * POST /api/consents/record
- * Aydınlatma gösterimi, sözleşme teyidi veya isteğe bağlı açık rıza / ticari ileti kayıtlarını
- * sunucu zaman damgasıyla immutable (sonradan değiştirilemez) olarak kaydeder.
+ * Aydınlatma gösterimi, sözleşme teyidi veya açık rıza / ticari ileti izinlerini
+ * sunucu zaman damgasıyla immutable (değiştirilemez) denetim kaydı olarak saklar
+ * ve kullanıcının güncel `users/{uid}.consentPreferences` alanını DOĞRU nested yapıda günceller.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const recordsInput = Array.isArray(body.records) ? body.records : [body]
 
-    if (recordsInput.length === 0 || recordsInput.length > 20) {
+    if (recordsInput.length === 0 || recordsInput.length > 25) {
       return NextResponse.json(
         { success: false, error: 'Geçerli kayıt listesi gereklidir.' },
         { status: 400 }
       )
     }
 
+    const verifiedUser = await tryVerifyTokenUid(req)
     const db = getAdminFirestore()
     const now = new Date().toISOString()
     const savedIds: string[] = []
     const batch = db.batch()
 
-    let userIdToUpdate: string | null = null
-    const userConsentUpdates: Record<string, any> = {}
+    let userIdToUpdate: string | null = verifiedUser?.uid || null
+    const nestedConsentPrefs: Partial<Record<ConsentPreferenceKey, Record<string, any>>> = {}
 
     for (const item of recordsInput) {
       const docType = item.docType as KvkkDocumentType
@@ -43,24 +63,33 @@ export async function POST(req: NextRequest) {
         continue
       }
 
+      // Güvenlik: token doğrulanmışsa her zaman token'daki UID kullanılır (başkasının UID'si enjekte edilemez)
+      const effectiveUid = verifiedUser?.uid || (item.userId ? String(item.userId) : undefined)
+      const effectiveEmail =
+        verifiedUser?.email?.toLowerCase() ||
+        (item.email ? String(item.email).trim().toLowerCase() : undefined)
+
       const eventType = (item.eventType || 'notice_shown') as ConsentEventType
       const stage = (item.stage || 'checkout') as ConsentStage
       const channel = (item.channel || 'web') as ConsentChannel
-      const subjectType = item.userId ? 'user' : 'guest'
+      const subjectType = effectiveUid ? 'user' : 'guest'
       const recordRef = db.collection(CONSENTS_COLLECTION).doc()
 
-      const record: ConsentRecord = removeUndefined({
+      const prefKey = resolveConsentPreferenceKey(docType, channel, item.consentKey)
+
+      const record: ConsentRecord & { consentKey?: ConsentPreferenceKey } = removeUndefined({
         id: recordRef.id,
         subjectType,
-        userId: item.userId ? String(item.userId) : undefined,
+        userId: effectiveUid,
         guestOrderRef: item.guestOrderRef ? String(item.guestOrderRef) : undefined,
-        email: item.email ? String(item.email).trim().toLowerCase() : undefined,
+        email: effectiveEmail,
         eventType,
         docType,
+        consentKey: prefKey || undefined,
         docVersion: Number(item.docVersion) || 1,
         docTitle: item.docTitle ? String(item.docTitle) : undefined,
         stage,
-        purpose: String(item.purpose || docType),
+        purpose: String(item.purpose || (prefKey ? CONSENT_PREFERENCE_META[prefKey].defaultPurpose : docType)),
         channel,
         status:
           eventType === 'notice_shown'
@@ -73,29 +102,38 @@ export async function POST(req: NextRequest) {
             ? 'withdrawn'
             : 'denied',
         createdAt: now,
-      }) as ConsentRecord
+      }) as ConsentRecord & { consentKey?: ConsentPreferenceKey }
 
       batch.set(recordRef, record)
       savedIds.push(recordRef.id)
 
-      if (item.userId && (docType === 'acik_riza' || docType === 'ticari_ileti')) {
-        userIdToUpdate = String(item.userId)
-        if (eventType === 'consent_granted') {
-          userConsentUpdates[`consentPreferences.${docType}`] = {
-            granted: true,
-            docVersion: record.docVersion,
-            channel,
-            purpose: record.purpose,
-            updatedAt: now,
-            recordId: recordRef.id,
-          }
+      // Sadece gerçek `consent_granted` kayıtları aktif izin tercihini açar (notice_shown/contract_confirmed ASLA açmaz)
+      if (effectiveUid && prefKey && eventType === 'consent_granted') {
+        userIdToUpdate = effectiveUid
+        nestedConsentPrefs[prefKey] = {
+          granted: true,
+          docType,
+          docVersion: record.docVersion,
+          channel,
+          purpose: record.purpose,
+          grantedAt: now,
+          updatedAt: now,
+          recordId: recordRef.id,
         }
       }
     }
 
-    if (userIdToUpdate && Object.keys(userConsentUpdates).length > 0) {
+    if (userIdToUpdate && Object.keys(nestedConsentPrefs).length > 0) {
       const userRef = db.collection('users').doc(userIdToUpdate)
-      batch.set(userRef, { ...userConsentUpdates, updatedAt: now }, { merge: true })
+      // KRİTİK DÜZELTME: set(..., { merge: true }) ile dot-key DEĞİL, gerçek nested obje yazılır!
+      batch.set(
+        userRef,
+        {
+          consentPreferences: nestedConsentPrefs,
+          updatedAt: now,
+        },
+        { merge: true }
+      )
     }
 
     await batch.commit()

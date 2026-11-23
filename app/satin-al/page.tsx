@@ -337,10 +337,12 @@ function CheckoutContent() {
   const [paytrOrderNumber, setPaytrOrderNumber] = useState('')
   const [showPaytrModal, setShowPaytrModal] = useState(false)
 
-  // Legal Agreements & Separate Optional Consents (KVKK Compliant)
+  // Legal Agreements & Separate Non-Mandatory Consents (KVKK Compliant)
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [explicitConsent, setExplicitConsent] = useState(false)
-  const [commercialConsent, setCommercialConsent] = useState(false)
+  const [commercialEmailConsent, setCommercialEmailConsent] = useState(false)
+  const [commercialSmsConsent, setCommercialSmsConsent] = useState(false)
+  const [commercialPhoneConsent, setCommercialPhoneConsent] = useState(false)
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false)
 
   // Modals & Live Versioned KVKK Documents
@@ -715,7 +717,7 @@ function CheckoutContent() {
     const legalCheck = validateCheckoutLegalRequirements({
       contractConfirmed: agreementAccepted,
       explicitConsent,
-      commercialConsent,
+      commercialConsent: commercialEmailConsent || commercialSmsConsent || commercialPhoneConsent,
     })
     if (!legalCheck.valid) {
       setPaymentError(legalCheck.error || loc.alertAgreement)
@@ -763,21 +765,47 @@ function CheckoutContent() {
           records.push({
             ...base,
             docType: 'acik_riza' as KvkkDocumentType,
+            consentKey: 'acik_riza',
             docVersion: kvkkDocs?.acik_riza?.version || 1,
             docTitle: kvkkDocs?.acik_riza?.title,
             eventType: 'consent_granted',
-            purpose: 'Kişiselleştirilmiş öneri ve analiz açık rızası',
+            purpose: 'personalized_marketing',
           })
         }
-        if (commercialConsent) {
+        if (commercialEmailConsent) {
           records.push({
             ...base,
             docType: 'ticari_ileti' as KvkkDocumentType,
+            consentKey: 'ticari_ileti_email',
             docVersion: kvkkDocs?.ticari_ileti?.version || 1,
             docTitle: kvkkDocs?.ticari_ileti?.title,
             eventType: 'consent_granted',
-            purpose: 'Kampanya ve duyuru ticari elektronik ileti izni',
+            purpose: 'commercial_electronic_message_email',
             channel: 'email',
+          })
+        }
+        if (commercialSmsConsent) {
+          records.push({
+            ...base,
+            docType: 'ticari_ileti' as KvkkDocumentType,
+            consentKey: 'ticari_ileti_sms',
+            docVersion: kvkkDocs?.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs?.ticari_ileti?.title,
+            eventType: 'consent_granted',
+            purpose: 'commercial_electronic_message_sms',
+            channel: 'sms',
+          })
+        }
+        if (commercialPhoneConsent) {
+          records.push({
+            ...base,
+            docType: 'ticari_ileti' as KvkkDocumentType,
+            consentKey: 'ticari_ileti_phone',
+            docVersion: kvkkDocs?.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs?.ticari_ileti?.title,
+            eventType: 'consent_granted',
+            purpose: 'commercial_electronic_message_phone',
+            channel: 'phone',
           })
         }
         await fetch('/api/consents/record', {
@@ -989,7 +1017,9 @@ function CheckoutContent() {
           preliminaryInfoForm: true,
           kvkkNoticeShown: true,
           explicitConsent,
-          commercialConsent,
+          commercialEmailConsent,
+          commercialSmsConsent,
+          commercialPhoneConsent,
           kvkkNoticeVersion: kvkkDocs?.kvkk_aydinlatma?.version || 1,
           acceptedAt: new Date().toISOString(),
           ip: 'client_secured',
@@ -2247,7 +2277,7 @@ function CheckoutContent() {
                 </div>
               )}
 
-              {/* Step 3: Yasal Bilgilendirme, Zorunlu Sözleşme Onayı ve İsteğe Bağlı İzinler */}
+              {/* Step 3: Yasal Bilgilendirme, Zorunlu Sözleşme Onayı ve İletişim Tercihleri */}
               <div className="pt-5 border-t border-slate-100 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
@@ -2320,10 +2350,10 @@ function CheckoutContent() {
                   </label>
                 </div>
 
-                {/* 3. Ayrı ve İsteğe Bağlı Açık Rıza */}
+                {/* 3. Ayrı Açık Rıza ve Kanal Bazlı Ticari İleti Tercihleri (Varsayılan boş, zorunlu DEĞİL) */}
                 <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 space-y-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    İsteğe Bağlı İzinler (Sipariş için zorunlu değildir)
+                  <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    Açık Rıza ve İletişim Tercihleri
                   </p>
 
                   <label className="flex items-start gap-3 cursor-pointer select-none">
@@ -2341,30 +2371,51 @@ function CheckoutContent() {
                       >
                         Açık Rıza Metni
                       </button>
-                      &apos;ni okudum; kişiselleştirilmiş ürün önerileri ve analiz amaçlı veri işlenmesine açık rıza veriyorum.{' '}
-                      <span className="text-[10px] text-slate-400">(İsteğe bağlı)</span>
+                      &apos;ni okudum; kişiselleştirilmiş ürün önerileri ve analiz amaçlı veri işlenmesine açık rıza veriyorum.
                     </span>
                   </label>
 
-                  <label className="flex items-start gap-3 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={commercialConsent}
-                      onChange={(e) => setCommercialConsent(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer flex-shrink-0"
-                    />
-                    <span className="text-xs text-slate-600 leading-relaxed">
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <p className="text-xs text-slate-600 leading-relaxed">
                       <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); setActiveModal('ticari_ileti') }}
+                        onClick={() => setActiveModal('ticari_ileti')}
                         className="text-slate-900 font-bold hover:underline"
                       >
                         Ticari Elektronik İleti İzni
                       </button>
-                      &apos;ni okudum; kampanya, indirim ve duyurular için e-posta/SMS almayı kabul ediyorum.{' '}
-                      <span className="text-[10px] text-slate-400">(İsteğe bağlı)</span>
-                    </span>
-                  </label>
+                      &apos;ni okudum; kampanya, indirim ve duyuru iletilerini almak istediğim kanallar:
+                    </p>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={commercialEmailConsent}
+                          onChange={(e) => setCommercialEmailConsent(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <span>E-posta</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={commercialSmsConsent}
+                          onChange={(e) => setCommercialSmsConsent(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <span>SMS</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={commercialPhoneConsent}
+                          onChange={(e) => setCommercialPhoneConsent(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <span>Telefon</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 

@@ -212,6 +212,21 @@ function LoginContent() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {searchParams.get('deleted') === '1' && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3.5 rounded-2xl text-xs space-y-1">
+                <p className="font-bold">Hesabınız başarıyla kapatıldı.</p>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  Profil, adres ve tercih verileriniz silindi. Mevzuat gereği saklanması zorunlu sipariş, fatura ve rıza
+                  ispat kayıtları kısıtlı erişimle korunmaya devam etmektedir.
+                </p>
+                {searchParams.get('ref') && (
+                  <p className="text-[11px] font-mono font-bold text-emerald-950 pt-0.5">
+                    KVKK Takip Kodu: {searchParams.get('ref')}
+                  </p>
+                )}
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2">
                 <FiAlertCircle className="w-4 h-4 flex-shrink-0 text-red-500" />

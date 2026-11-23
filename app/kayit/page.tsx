@@ -137,9 +137,11 @@ function RegisterContent() {
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(true)
 
-  // İsteğe bağlı rızalar (varsayılan seçili DEĞİL, üyelik için zorunlu DEĞİL)
+  // Açık rıza ve kanal bazlı ticari elektronik ileti izinleri (varsayılan seçili DEĞİL, zorunlu DEĞİL)
   const [explicitConsent, setExplicitConsent] = useState(false)
-  const [commercialConsent, setCommercialConsent] = useState(false)
+  const [commercialEmailConsent, setCommercialEmailConsent] = useState(false)
+  const [commercialSmsConsent, setCommercialSmsConsent] = useState(false)
+  const [commercialPhoneConsent, setCommercialPhoneConsent] = useState(false)
 
   // Yayımlanmış KVKK belgeleri ve modal
   const [kvkkDocs, setKvkkDocs] = useState<Partial<Record<KvkkDocumentType, KvkkManagedDocument>>>({})
@@ -195,9 +197,11 @@ function RegisterContent() {
     const result = await registerUser(email, password, firstName, lastName)
 
     if (result.success) {
-      // Sunucu tarafında KVKK aydınlatma gösterimi ve (verildiyse) isteğe bağlı rızaları kaydet
+      // Sunucu tarafında KVKK aydınlatma gösterimi ve (verildiyse) açık rıza / ticari ileti izinlerini kaydet
       try {
-        const uid = (result as any).user?.uid
+        const createdUser = (result as any).user
+        const uid = createdUser?.uid
+        const idToken = await createdUser?.getIdToken?.().catch(() => null)
         const records: any[] = [
           {
             userId: uid,
@@ -218,6 +222,7 @@ function RegisterContent() {
             email: email.trim().toLowerCase(),
             eventType: 'consent_granted',
             docType: 'acik_riza',
+            consentKey: 'acik_riza',
             docVersion: kvkkDocs.acik_riza?.version || 1,
             docTitle: kvkkDocs.acik_riza?.title || 'Açık Rıza Metni',
             stage: 'register',
@@ -226,23 +231,57 @@ function RegisterContent() {
           })
         }
 
-        if (commercialConsent) {
+        if (commercialEmailConsent) {
           records.push({
             userId: uid,
             email: email.trim().toLowerCase(),
             eventType: 'consent_granted',
             docType: 'ticari_ileti',
+            consentKey: 'ticari_ileti_email',
             docVersion: kvkkDocs.ticari_ileti?.version || 1,
             docTitle: kvkkDocs.ticari_ileti?.title || 'Ticari Elektronik İleti İzni',
             stage: 'register',
-            purpose: 'commercial_electronic_message',
+            purpose: 'commercial_electronic_message_email',
             channel: 'email',
           })
         }
 
+        if (commercialSmsConsent) {
+          records.push({
+            userId: uid,
+            email: email.trim().toLowerCase(),
+            eventType: 'consent_granted',
+            docType: 'ticari_ileti',
+            consentKey: 'ticari_ileti_sms',
+            docVersion: kvkkDocs.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs.ticari_ileti?.title || 'Ticari Elektronik İleti İzni',
+            stage: 'register',
+            purpose: 'commercial_electronic_message_sms',
+            channel: 'sms',
+          })
+        }
+
+        if (commercialPhoneConsent) {
+          records.push({
+            userId: uid,
+            email: email.trim().toLowerCase(),
+            eventType: 'consent_granted',
+            docType: 'ticari_ileti',
+            consentKey: 'ticari_ileti_phone',
+            docVersion: kvkkDocs.ticari_ileti?.version || 1,
+            docTitle: kvkkDocs.ticari_ileti?.title || 'Ticari Elektronik İleti İzni',
+            stage: 'register',
+            purpose: 'commercial_electronic_message_phone',
+            channel: 'phone',
+          })
+        }
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (idToken) headers['Authorization'] = `Bearer ${idToken}`
+
         await fetch('/api/consents/record', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ records }),
         })
       } catch (consentErr) {
@@ -397,7 +436,7 @@ function RegisterContent() {
               </p>
             </div>
 
-            {/* İsteğe Bağlı Ayrı İzin Kutuları (Varsayılan seçili DEĞİL, üyelik için zorunlu DEĞİL) */}
+            {/* Ayrı Açık Rıza ve Kanal Bazlı Ticari İleti Kutuları (Varsayılan boş, üyelik için zorunlu DEĞİL) */}
             <div className="space-y-2.5 pt-1">
               <label className="flex items-start gap-2.5 cursor-pointer select-none">
                 <input
@@ -407,7 +446,6 @@ function RegisterContent() {
                   className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
                 />
                 <span className="text-[11px] text-slate-600 leading-normal">
-                  <span className="font-semibold text-slate-800">(İsteğe bağlı)</span>{' '}
                   <button
                     type="button"
                     onClick={(e) => { e.preventDefault(); setModalDocType('acik_riza') }}
@@ -419,25 +457,47 @@ function RegisterContent() {
                 </span>
               </label>
 
-              <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={commercialConsent}
-                  onChange={(e) => setCommercialConsent(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
-                />
-                <span className="text-[11px] text-slate-600 leading-normal">
-                  <span className="font-semibold text-slate-800">(İsteğe bağlı)</span>{' '}
+              <div className="p-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                <p className="text-[11px] text-slate-700 leading-normal">
                   <button
                     type="button"
-                    onClick={(e) => { e.preventDefault(); setModalDocType('ticari_ileti') }}
+                    onClick={() => setModalDocType('ticari_ileti')}
                     className="text-sky-600 font-bold hover:underline cursor-pointer"
                   >
                     Ticari Elektronik İleti İzni
                   </button>{' '}
-                  kapsamında kampanya ve indirimler hakkında e-posta / SMS almak istiyorum.
-                </span>
-              </label>
+                  kapsamında kampanya ve indirim duyuruları almak istediğim kanallar:
+                </p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-0.5">
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={commercialEmailConsent}
+                      onChange={(e) => setCommercialEmailConsent(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                    <span>E-posta</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={commercialSmsConsent}
+                      onChange={(e) => setCommercialSmsConsent(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                    <span>SMS</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={commercialPhoneConsent}
+                      onChange={(e) => setCommercialPhoneConsent(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                    <span>Telefon</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             <div className="pt-2">
