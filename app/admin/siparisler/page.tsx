@@ -102,7 +102,33 @@ interface Order {
   cancelledAt?: string
   cancelledBy?: string
   cancellationHistory?: OrderCancellationRecord[]
-  refundStatus?: 'none' | 'pending_refund' | 'processing_refund' | 'refunded' | 'refund_failed' | 'no_refund_needed'
+  refundStatus?: 'none' | 'pending_refund' | 'processing_refund' | 'refunded' | 'refund_failed' | 'refund_unknown' | 'no_refund_needed'
+  withdrawalRequest?: {
+    id: string
+    status: string
+    reason?: string
+    customerNote?: string
+    carrierStatusAtRequest?: string
+    requestedAt?: string
+    reviewedBy?: string
+    reviewedAt?: string
+    adminNote?: string
+    customerNotification?: {
+      message?: string
+      notifiedAt?: string
+      status?: string
+    }
+    history?: Array<{
+      status: string
+      action: string
+      actor: string
+      actorEmail?: string
+      note?: string | null
+      customerMessage?: string
+      timestamp: string
+    }>
+  }
+  delayedPaymentAfterCancel?: boolean
   refundError?: string
   refundedAmountTRY?: number
   refundUpdatedAt?: string
@@ -764,6 +790,65 @@ export default function OrdersPage() {
       setCancelError(err.message || 'Sipariş iptal edilirken bir sorun oluştu.')
     } finally {
       setCancellingOrder(false)
+    }
+  }
+
+  // Cayma Talebi İnceleme & Sonuçlandırma (POST /api/admin/withdrawals/review)
+  const [reviewingWithdrawal, setReviewingWithdrawal] = useState(false)
+  const [withdrawalAdminNote, setWithdrawalAdminNote] = useState('')
+
+  const handleReviewWithdrawal = async (
+    order: Order,
+    action: 'approve' | 'mark_return_expected' | 'reject' | 'complete'
+  ) => {
+    if (!order.withdrawalRequest) return
+    const note = withdrawalAdminNote.trim()
+    if (action === 'reject' && note.length < 5) {
+      alert('Cayma talebini reddetmek için en az 5 karakterlik gerekçe yazınız.')
+      return
+    }
+    setReviewingWithdrawal(true)
+    try {
+      const user = await getCurrentUser()
+      if (!user) {
+        alert('Yönetici oturumu bulunamadı. Lütfen tekrar giriş yapınız.')
+        return
+      }
+      const token = await user.getIdToken()
+      const res = await fetch('/api/admin/withdrawals/review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: order.id,
+          withdrawalId: order.withdrawalRequest.id,
+          action,
+          adminNote: note,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        alert(`✅ ${data.message}`)
+        setWithdrawalAdminNote('')
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === order.id ? { ...o, withdrawalRequest: data.withdrawalRequest } : o
+          )
+        )
+        if (selectedOrder?.id === order.id) {
+          setSelectedOrder((prev) =>
+            prev ? { ...prev, withdrawalRequest: data.withdrawalRequest } : null
+          )
+        }
+      } else {
+        alert(`❌ ${data.error || 'Cayma talebi güncellenemedi.'}`)
+      }
+    } catch (err: any) {
+      alert(`❌ ${err?.message || 'Sunucu hatası oluştu.'}`)
+    } finally {
+      setReviewingWithdrawal(false)
     }
   }
 
@@ -2471,6 +2556,21 @@ export default function OrdersPage() {
                           ⏳ İade İşleniyor
                         </span>
                       )}
+                      {order.refundStatus === 'refund_unknown' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-300" title="PayTR iade zaman aşımına uğradı — PayTR panelinden manuel doğrulama gerekli">
+                          ⚠ İade Belirsiz (PayTR Kontrol)
+                        </span>
+                      )}
+                      {order.withdrawalRequest && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300" title={order.withdrawalRequest.reason || 'Cayma talebi'}>
+                          📋 Cayma Talebi
+                        </span>
+                      )}
+                      {order.delayedPaymentAfterCancel && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-300">
+                          ⚠ İptal Sonrası Gecikmiş Ödeme
+                        </span>
+                      )}
                       {order.refundStatus === 'pending_refund' && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200">
                           ⏳ İade Bekliyor
@@ -2787,6 +2887,8 @@ export default function OrdersPage() {
                           <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
                             selectedOrder.refundStatus === 'refunded'
                               ? 'bg-emerald-100 text-emerald-800'
+                              : selectedOrder.refundStatus === 'refund_unknown'
+                              ? 'bg-purple-100 text-purple-900'
                               : selectedOrder.refundStatus === 'refund_failed'
                               ? 'bg-rose-100 text-rose-800'
                               : selectedOrder.refundStatus === 'processing_refund'
@@ -2795,6 +2897,8 @@ export default function OrdersPage() {
                           }`}>
                             {selectedOrder.refundStatus === 'refunded'
                               ? `İADE EDİLDİ (${selectedOrder.refundedAmountTRY || selectedOrder.total} TL)`
+                              : selectedOrder.refundStatus === 'refund_unknown'
+                              ? 'BELİRSİZ — PAYTR KONTROLÜ GEREKLİ'
                               : selectedOrder.refundStatus === 'refund_failed'
                               ? 'İADE BAŞARISIZ'
                               : selectedOrder.refundStatus === 'processing_refund'
@@ -2807,7 +2911,13 @@ export default function OrdersPage() {
                             <strong>Hata:</strong> {selectedOrder.refundError}
                           </p>
                         )}
-                        {selectedOrder.refundStatus !== 'refunded' && (
+                        {selectedOrder.refundStatus === 'refund_unknown' && (
+                          <p className="text-[11px] text-purple-900 bg-purple-50 p-2.5 rounded-lg border border-purple-200 leading-snug">
+                            <strong>Çift İade Koruması:</strong> Önceki PayTR iade isteği zaman aşımına uğradı. Lütfen
+                            PayTR Mağaza Panelinden işlemin durumunu kontrol etmeden tekrar iade göndermeyiniz.
+                          </p>
+                        )}
+                        {selectedOrder.refundStatus !== 'refunded' && selectedOrder.refundStatus !== 'refund_unknown' && (
                           <button
                             type="button"
                             onClick={() => handleTriggerRefund(selectedOrder)}
@@ -2844,6 +2954,93 @@ export default function OrdersPage() {
                             <span>PayTR Otomatik İadeyi Başlat</span>
                           </button>
                         </div>
+                    )}
+                    {/* Yasal Cayma Talebi İnceleme & Sonuçlandırma Paneli */}
+                    {selectedOrder.withdrawalRequest && (
+                      <div className="pt-3 border-t border-amber-200 mt-3 space-y-2 bg-amber-50/70 p-3 rounded-xl">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-amber-950 text-xs">
+                            Cayma Talebi ({selectedOrder.withdrawalRequest.id})
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-200 text-amber-950 uppercase">
+                            {selectedOrder.withdrawalRequest.status === 'approved'
+                              ? 'Onaylandı'
+                              : selectedOrder.withdrawalRequest.status === 'return_expected'
+                              ? 'İade Bekleniyor'
+                              : selectedOrder.withdrawalRequest.status === 'completed'
+                              ? 'Tamamlandı'
+                              : selectedOrder.withdrawalRequest.status === 'rejected'
+                              ? 'Reddedildi'
+                              : 'İnceleme Bekliyor'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-amber-900">
+                          <strong>Talep Gerekçesi:</strong> {selectedOrder.withdrawalRequest.reason || 'Belirtilmedi'}
+                        </p>
+                        {selectedOrder.withdrawalRequest.carrierStatusAtRequest && (
+                          <p className="text-[11px] text-amber-800">
+                            <strong>Talep Anındaki Kargo Durumu:</strong> {selectedOrder.withdrawalRequest.carrierStatusAtRequest}
+                          </p>
+                        )}
+                        {Array.isArray(selectedOrder.withdrawalRequest.history) &&
+                          selectedOrder.withdrawalRequest.history.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-amber-200/70">
+                              <span className="text-[10px] font-bold text-amber-900 uppercase">İşlem Geçmişi:</span>
+                              {selectedOrder.withdrawalRequest.history.map((h, i) => (
+                                <div key={i} className="text-[10px] text-amber-900 bg-white/70 p-1.5 rounded border border-amber-100">
+                                  <span className="font-bold">{h.status}</span> · {h.actorEmail || h.actor} ·{' '}
+                                  {new Date(h.timestamp).toLocaleString('tr-TR')}
+                                  {h.note && <p className="text-amber-800 mt-0.5">Not: {h.note}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        {!['completed', 'rejected'].includes(selectedOrder.withdrawalRequest.status) && (
+                          <div className="space-y-2 pt-2 border-t border-amber-200">
+                            <input
+                              type="text"
+                              value={withdrawalAdminNote}
+                              onChange={(e) => setWithdrawalAdminNote(e.target.value)}
+                              placeholder="Yönetici notu / ret gerekçesi (red için zorunlu)..."
+                              className="w-full px-2.5 py-1.5 text-[11px] bg-white border border-amber-300 rounded-lg focus:outline-none focus:border-amber-500"
+                            />
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                disabled={reviewingWithdrawal}
+                                onClick={() => handleReviewWithdrawal(selectedOrder, 'approve')}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
+                              >
+                                Onayla
+                              </button>
+                              <button
+                                type="button"
+                                disabled={reviewingWithdrawal}
+                                onClick={() => handleReviewWithdrawal(selectedOrder, 'mark_return_expected')}
+                                className="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold disabled:opacity-50"
+                              >
+                                İade Bekleniyor
+                              </button>
+                              <button
+                                type="button"
+                                disabled={reviewingWithdrawal}
+                                onClick={() => handleReviewWithdrawal(selectedOrder, 'complete')}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold disabled:opacity-50"
+                              >
+                                Tamamlandı
+                              </button>
+                              <button
+                                type="button"
+                                disabled={reviewingWithdrawal}
+                                onClick={() => handleReviewWithdrawal(selectedOrder, 'reject')}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold disabled:opacity-50"
+                              >
+                                Reddet
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

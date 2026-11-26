@@ -54,6 +54,7 @@ import { buildHepsiJetTrackingUrl } from '@/lib/hepsijet/tracking-url'
 import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
 import { RETURN_REASONS, ReturnReasonCode, ReturnRequest, AvailableDeliveryDate } from '@/lib/returns/types'
 import { addToCart } from '@/lib/utils/cart'
+import { getCustomerOrderActionMode } from '@/lib/orders/cancellationPolicy'
 import KvkkConsentsCard from '@/components/profile/KvkkConsentsCard'
 import AccountDeletionCard from '@/components/profile/AccountDeletionCard'
 
@@ -428,6 +429,49 @@ export default function ProfilePage() {
   }
 
   // Sipariş İptali
+  const [withdrawalModalOrder, setWithdrawalModalOrder] = useState<any | null>(null)
+  const [withdrawalReason, setWithdrawalReason] = useState('')
+  const [withdrawalLoading, setWithdrawalLoading] = useState(false)
+  const [withdrawalError, setWithdrawalError] = useState<string | null>(null)
+
+  const handleOpenWithdrawalModal = (order: any) => {
+    setWithdrawalModalOrder(order)
+    setWithdrawalReason('')
+    setWithdrawalError(null)
+  }
+
+  const handleConfirmWithdrawal = async () => {
+    if (!user || !withdrawalModalOrder) return
+    setWithdrawalLoading(true)
+    setWithdrawalError(null)
+    try {
+      const idToken = await user.getIdToken()
+      const res = await fetch('/api/orders/withdrawal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          orderId: withdrawalModalOrder.orderNumber || withdrawalModalOrder.id,
+          reason: withdrawalReason.trim() || 'Mesafeli Sözleşmeler Yönetmeliği kapsamında cayma talebi',
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        alert(data.message || 'Cayma talebiniz kaydedildi.')
+        setWithdrawalModalOrder(null)
+        await loadOrders(user.uid, user.email || undefined)
+      } else {
+        setWithdrawalError(data.error || 'Cayma talebi iletilemedi.')
+      }
+    } catch (err: any) {
+      setWithdrawalError(err?.message || 'Cayma talebi gönderilirken bir hata oluştu.')
+    } finally {
+      setWithdrawalLoading(false)
+    }
+  }
+
   const handleOpenCancelModal = (order: any) => {
     setCancelModalOrder(order)
     setCancelReasonText('Vazgeçtim / Başka ürün alacağım')
@@ -872,15 +916,10 @@ export default function ProfilePage() {
                     const isCancelled = rawStatus === 'cancelled' || rawShipStatus === 'cancelled' || order.isCancelled === true
                     const isDelivered = rawStatus === 'delivered' || rawStatus === 'completed' || rawShipStatus === 'delivered'
 
-                    // İptal edilebilirlik: Kargoya verilmemiş ve kurye teslim almamış
-                    const isCancellable =
-                      !isCancelled &&
-                      !isDelivered &&
-                      rawStatus !== 'shipped' &&
-                      rawShipStatus !== 'accepted' &&
-                      rawShipStatus !== 'in_transit' &&
-                      rawShipStatus !== 'out_for_delivery' &&
-                      rawShipStatus !== 'cancel_pending'
+                    // Ortak İptal / Cayma / İade Politikası
+                    const actionMode = getCustomerOrderActionMode(order)
+                    const isCancellable = actionMode === 'cancel'
+                    const isWithdrawalEligible = actionMode === 'withdrawal' && !order.withdrawalRequest
 
                     // Kargo takip bilgisi
                     const shipping = order.shipping
@@ -975,6 +1014,38 @@ export default function ProfilePage() {
                               ))}
                             </div>
 
+                            {/* Açık / Sonuçlanan Cayma Talebi Bildirimi */}
+                            {order.withdrawalRequest && (
+                              <div className={`px-3 py-2 rounded-xl border text-xs mt-2 space-y-1 ${
+                                order.withdrawalRequest.status === 'rejected'
+                                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                                  : order.withdrawalRequest.status === 'completed' || order.withdrawalRequest.status === 'approved'
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                                  : 'bg-amber-50 border-amber-200 text-amber-900'
+                              }`}>
+                                <div className="flex items-center gap-2">
+                                  <FiInfo className="w-4 h-4 flex-shrink-0" />
+                                  <span className="font-bold">Cayma Talebi ({order.withdrawalRequest.id}):</span>
+                                  <span className="font-semibold">
+                                    {order.withdrawalRequest.status === 'approved'
+                                      ? 'Onaylandı'
+                                      : order.withdrawalRequest.status === 'return_expected'
+                                      ? 'İade Bekleniyor'
+                                      : order.withdrawalRequest.status === 'completed'
+                                      ? 'Tamamlandı'
+                                      : order.withdrawalRequest.status === 'rejected'
+                                      ? 'Reddedildi'
+                                      : 'İnceleniyor'}
+                                  </span>
+                                </div>
+                                {order.withdrawalRequest.customerNotification?.message && (
+                                  <p className="text-[11px] opacity-90 pl-6">
+                                    {order.withdrawalRequest.customerNotification.message}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
                             {/* Açık İade Talebi Bildirimi */}
                             {activeReturn && (
                               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-xs text-purple-900 mt-2">
@@ -1034,6 +1105,17 @@ export default function ProfilePage() {
                                 className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition-colors cursor-pointer"
                               >
                                 Siparişi İptal Et
+                              </button>
+                            )}
+
+                            {/* Kargoya Teslim Edilmiş Sipariş İçin Yasal Cayma Talebi Butonu */}
+                            {isWithdrawalEligible && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenWithdrawalModal(order)}
+                                className="px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition-colors cursor-pointer"
+                              >
+                                Cayma Talebi İlet
                               </button>
                             )}
 
@@ -2159,6 +2241,75 @@ export default function ProfilePage() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Yasal Cayma Talebi Modalı (Kargoya Teslim Edilmiş Siparişler İçin) */}
+      <AnimatePresence>
+        {withdrawalModalOrder && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => !withdrawalLoading && setWithdrawalModalOrder(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-200"
+            >
+              <div className="px-6 py-4 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+                <h3 className="text-sm font-black text-amber-950">Yasal Cayma Talebi İlet</h3>
+                <button
+                  type="button"
+                  disabled={withdrawalLoading}
+                  onClick={() => setWithdrawalModalOrder(null)}
+                  className="p-1.5 rounded-xl text-amber-800 hover:bg-amber-100 cursor-pointer"
+                >
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4 text-xs text-slate-600">
+                <p className="leading-relaxed">
+                  <strong>#{withdrawalModalOrder.orderNumber || withdrawalModalOrder.id}</strong> numaralı siparişiniz
+                  kargo firmasına teslim edildiği için anlık iptal yerine Mesafeli Sözleşmeler Yönetmeliği kapsamında
+                  cayma talebiniz kaydedilecektir. Mevcut kargo süreciniz bozulmaz ve ekibimiz inceleme sonrası dönüş yapar.
+                </p>
+                {withdrawalError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-semibold">
+                    {withdrawalError}
+                  </div>
+                )}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">Cayma Gerekçeniz (Opsiyonel)</label>
+                  <textarea
+                    rows={3}
+                    value={withdrawalReason}
+                    onChange={(e) => setWithdrawalReason(e.target.value)}
+                    placeholder="Örn: Siparişten vazgeçtim, cayma hakkımı kullanmak istiyorum."
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-amber-500 resize-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={withdrawalLoading}
+                    onClick={() => setWithdrawalModalOrder(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="button"
+                    disabled={withdrawalLoading}
+                    onClick={handleConfirmWithdrawal}
+                    className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {withdrawalLoading ? 'Gönderiliyor...' : 'Cayma Talebini Gönder'}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

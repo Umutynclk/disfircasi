@@ -313,6 +313,47 @@ export async function claimNextPrintJobServer(
           return null
         }
 
+        // KRİTİK GÜVENLİK: İşi yazıcıya vermeden önce siparişin hâlâ geçerli, PAID ve iptal edilmemiş olduğunu doğrula
+        if (data.type === 'shipping_label' && data.orderId) {
+          const orderRef = db.collection('orders').doc(data.orderId)
+          const orderSnap = await transaction.get(orderRef)
+          const orderData = orderSnap.exists ? orderSnap.data() : null
+          const ordStatus = String(orderData?.status || '').toLowerCase()
+          const shipStatus = String(orderData?.shipping?.status || '').toLowerCase()
+          const payStatus = String(orderData?.paymentStatus || '')
+
+          const isOrderIneligible =
+            !orderSnap.exists ||
+            ordStatus === 'cancelled' ||
+            ordStatus === 'refunded' ||
+            ordStatus === 'returned' ||
+            shipStatus === 'cancelled' ||
+            payStatus !== 'PAID'
+
+          if (isOrderIneligible) {
+            const reasonMsg = !orderSnap.exists
+              ? 'İlgili sipariş bulunamadığı için baskı işi iptal edildi.'
+              : `Sipariş baskıya uygun değil (status=${ordStatus || 'yok'}, shipping=${shipStatus || 'yok'}, payment=${payStatus || 'yok'}).`
+
+            const cancelledJob = removeUndefined({
+              ...data,
+              status: 'cancelled' as PrintJobStatus,
+              updatedAt: nowIso,
+              lockedBy: undefined,
+              lockedAt: undefined,
+              leaseExpiresAt: undefined,
+              lastError: {
+                code: 'ORDER_INELIGIBLE_AT_CLAIM',
+                message: reasonMsg,
+                timestamp: nowIso,
+              },
+            }) as PrintJob
+
+            transaction.set(jobRef, cancelledJob)
+            return null
+          }
+        }
+
         const currentAttempts = data.attemptCount || 0
         const maxAttempts = data.maxAttempts || MAX_PRINT_ATTEMPTS
 
@@ -381,6 +422,84 @@ export async function claimNextPrintJobServer(
   }
 
   return null
+}
+
+/**
+ * Sipariş iptal edildiğinde yalnızca henüz basılmamış (pending) etiket işlerini iptal eder.
+ * Halihazırda processing veya printed olan işlerin durumunu bozmaz; fiziksel baskının
+ * başlamış olabileceğine dair denetim notu düşer.
+ */
+export async function cancelPendingPrintJobsForOrder(
+  orderId: string,
+  reason: string = 'Sipariş iptal edildi.'
+): Promise<{
+  cancelledCount: number
+  inProgressOrPrintedCount: number
+  physicalPrintMayHaveStarted: boolean
+}> {
+  if (!orderId) {
+    return { cancelledCount: 0, inProgressOrPrintedCount: 0, physicalPrintMayHaveStarted: false }
+  }
+
+  const db = getAdminFirestore()
+  const snap = await db.collection(QUEUE_COLLECTION).where('orderId', '==', orderId).get()
+
+  if (snap.empty) {
+    return { cancelledCount: 0, inProgressOrPrintedCount: 0, physicalPrintMayHaveStarted: false }
+  }
+
+  const nowIso = new Date().toISOString()
+  let cancelledCount = 0
+  let inProgressOrPrintedCount = 0
+
+  const batch = db.batch()
+  for (const docSnap of snap.docs) {
+    const job = docSnap.data() as PrintJob
+    if (job.status === 'pending') {
+      batch.set(
+        docSnap.ref,
+        removeUndefined({
+          status: 'cancelled' as PrintJobStatus,
+          updatedAt: nowIso,
+          lockedBy: undefined,
+          lockedAt: undefined,
+          leaseExpiresAt: undefined,
+          lastError: {
+            code: 'ORDER_CANCELLED',
+            message: reason,
+            timestamp: nowIso,
+          },
+        }),
+        { merge: true }
+      )
+      cancelledCount++
+    } else if (job.status === 'processing' || job.status === 'printed') {
+      inProgressOrPrintedCount++
+      batch.set(
+        docSnap.ref,
+        {
+          updatedAt: nowIso,
+          metadata: {
+            ...(job.metadata || {}),
+            orderCancelledAfterDispatch: true,
+            orderCancelledAt: nowIso,
+            physicalPrintMayHaveStarted: true,
+          },
+        },
+        { merge: true }
+      )
+    }
+  }
+
+  if (cancelledCount > 0 || inProgressOrPrintedCount > 0) {
+    await batch.commit()
+  }
+
+  return {
+    cancelledCount,
+    inProgressOrPrintedCount,
+    physicalPrintMayHaveStarted: inProgressOrPrintedCount > 0,
+  }
 }
 
 /**

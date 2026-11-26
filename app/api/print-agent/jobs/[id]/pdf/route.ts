@@ -80,6 +80,17 @@ export async function GET(
       })
     }
 
+    if (job.status === 'cancelled') {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'PRINT_JOB_CANCELLED',
+          error: 'Bu yazdırma işi iptal edildiği için PDF oluşturulamaz.',
+        },
+        { status: 409 }
+      )
+    }
+
     if (job.type === 'shipping_label') {
       // Kargo ve Sipariş Bilgi Fişi (Combined Label)
       if (!job.orderId) {
@@ -97,7 +108,72 @@ export async function GET(
         )
       }
 
-      const orderData = { ...orderSnap.data(), id: orderSnap.id } as OrderForCombinedLabel
+      const rawOrder = orderSnap.data() || {}
+      const ordStatus = String(rawOrder.status || '').toLowerCase()
+      const shipStatus = String(rawOrder.shipping?.status || '').toLowerCase()
+      const payStatus = String(rawOrder.paymentStatus || '')
+
+      // FİZİKSEL BASKI ÖNCESİ SON AN YARIŞ DURUMU KORUMASI:
+      // Poll ile PDF indirme arasında sipariş iptal edildiyse PDF kesinlikle servis edilmez.
+      const orderIneligibleBeforePrint =
+        ordStatus === 'cancelled' ||
+        ordStatus === 'refunded' ||
+        ordStatus === 'returned' ||
+        shipStatus === 'cancelled' ||
+        payStatus !== 'PAID'
+
+      if (orderIneligibleBeforePrint) {
+        const nowIso = new Date().toISOString()
+        const physicalAlreadyStarted =
+          job.status === 'printed' || Boolean(job.metadata?.submittedToSpoolerAt)
+
+        if (!physicalAlreadyStarted) {
+          // Fiziksel baskı henüz başlamadıysa işi güvenle iptal et
+          await db
+            .collection(QUEUE_COLLECTION)
+            .doc(jobId)
+            .set(
+              {
+                status: 'cancelled',
+                updatedAt: nowIso,
+                lastError: {
+                  code: 'ORDER_CANCELLED_BEFORE_PRINT',
+                  message: `Fiziksel baskı öncesi sipariş durumu değişti (status=${ordStatus}, shipping=${shipStatus}, payment=${payStatus}). PDF engellendi.`,
+                  timestamp: nowIso,
+                },
+              },
+              { merge: true }
+            )
+        } else {
+          // Fiziksel baskı başlamışsa mevcut 'printed' durumunu bozma, sadece denetim notu düş
+          await db
+            .collection(QUEUE_COLLECTION)
+            .doc(jobId)
+            .set(
+              {
+                updatedAt: nowIso,
+                metadata: {
+                  ...(job.metadata || {}),
+                  physicalPrintMayHaveStarted: true,
+                  orderCancelledDetectedAtPdfFetch: nowIso,
+                },
+              },
+              { merge: true }
+            )
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'ORDER_CANCELLED_BEFORE_PRINT',
+            physicalPrintMayHaveStarted: physicalAlreadyStarted,
+            error: 'Sipariş iptal edildiği veya baskı uygunluğunu kaybettiği için etiket PDF indirmesi engellendi.',
+          },
+          { status: 409 }
+        )
+      }
+
+      const orderData = { ...rawOrder, id: orderSnap.id } as OrderForCombinedLabel
       const barcode = job.barcode || orderData.shipping?.barcode || orderData.shipping?.customerDeliveryNo
 
       if (!barcode) {

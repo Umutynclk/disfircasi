@@ -6,6 +6,7 @@ export type PrintJobStatus =
   | 'failed'
   | 'simulated'
   | 'manual_review'
+  | 'cancelled'
 
 export interface AckPrintJobBody {
   status: 'printed' | 'failed' | 'simulated' | 'manual_review'

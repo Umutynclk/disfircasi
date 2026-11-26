@@ -506,6 +506,34 @@ export async function POST(
               new Date().toISOString()
 
             // ------------------------------------------------
+            // GECİKMİŞ CALLBACK KORUMASI: Sipariş önceden iptal edildiyse
+            // status='processing' yapılmaz ve otomatik kargo başlatılmaz!
+            // ------------------------------------------------
+            if (orderData.status === 'cancelled') {
+              transaction.update(orderRef, {
+                paymentStatus: 'PAID',
+                paidAt,
+                delayedPaymentAfterCancel: true,
+                requiresAdminReview: true,
+                updatedAt: paidAt,
+                paytr: {
+                  merchant_oid,
+                  payment_amount: paymentAmountKurus,
+                  total_amount: totalAmountKurus,
+                  expected_amount: expectedAmountKurus,
+                  payment_type: payment_type || 'card',
+                  currency: currency || 'TL',
+                  test_mode: test_mode === '1',
+                  paidAt,
+                },
+              })
+
+              return {
+                action: 'paid_but_cancelled' as const,
+              }
+            }
+
+            // ------------------------------------------------
             // MARK PAID
             // ------------------------------------------------
 
@@ -650,6 +678,17 @@ export async function POST(
     ) {
       console.log(
         `ℹ️ PayTR Callback: ${merchant_oid} zaten FAILED. Duplicate callback OK.`,
+      )
+
+      return plainOkResponse()
+    }
+
+    if (
+      transactionResult.action ===
+      'paid_but_cancelled'
+    ) {
+      console.warn(
+        `⚠️ PayTR Callback: ${merchant_oid} için gecikmiş ödeme bildirimi geldi ancak sipariş önceden İPTAL edilmiş. Otomatik kargo başlatılmadı; admin incelemesine alındı.`,
       )
 
       return plainOkResponse()

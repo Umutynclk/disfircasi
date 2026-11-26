@@ -54,34 +54,54 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const orderData = orderSnap.data() || {}
+    // Atomik İdempotency Kilidi ve Uygunluk Kontrolü (Firestore Transaction)
+    let orderData: Record<string, any> = {}
+    let refundAmount = 0
 
-    // İade uygunluk kontrolü
-    const eligibility = checkRefundEligibility(orderData)
-    if (!eligibility.eligible) {
-      return NextResponse.json(
-        { success: false, error: eligibility.reason || 'Sipariş iadeye uygun değil.' },
-        { status: 400 }
-      )
+    try {
+      await db.runTransaction(async (transaction) => {
+        const freshSnap = await transaction.get(orderRef)
+        if (!freshSnap.exists) {
+          throw new Error('NOT_FOUND:Sipariş bulunamadı.')
+        }
+        const freshData = freshSnap.data() || {}
+        const eligibility = checkRefundEligibility(freshData)
+        if (!eligibility.eligible) {
+          throw new Error(`INELIGIBLE:${eligibility.reason || 'Sipariş iadeye uygun değil.'}`)
+        }
+
+        const calculated =
+          typeof amountTRY === 'number' && amountTRY > 0
+            ? Math.min(amountTRY, eligibility.refundableAmountTRY!)
+            : eligibility.refundableAmountTRY!
+
+        if (calculated <= 0) {
+          throw new Error('INELIGIBLE:İade edilebilir tutar sıfır veya negatif olamaz.')
+        }
+
+        transaction.update(
+          orderRef,
+          cleanFirestoreData({
+            refundStatus: 'processing_refund',
+            refundLockTimestamp: Date.now(),
+            refundAttemptedBy: auth.email || 'admin',
+            updatedAt: new Date().toISOString(),
+          })
+        )
+
+        orderData = freshData
+        refundAmount = calculated
+      })
+    } catch (txErr: any) {
+      const msg = String(txErr?.message || '')
+      if (msg.startsWith('NOT_FOUND:')) {
+        return NextResponse.json({ success: false, error: msg.slice(10) }, { status: 404 })
+      }
+      if (msg.startsWith('INELIGIBLE:')) {
+        return NextResponse.json({ success: false, error: msg.slice(11) }, { status: 400 })
+      }
+      throw txErr
     }
-
-    const refundAmount = typeof amountTRY === 'number' && amountTRY > 0
-      ? Math.min(amountTRY, eligibility.refundableAmountTRY!)
-      : eligibility.refundableAmountTRY!
-
-    if (refundAmount <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'İade edilebilir tutar sıfır veya negatif olamaz.' },
-        { status: 400 }
-      )
-    }
-
-    // İdempotency kilidi koy
-    await orderRef.update(cleanFirestoreData({
-      refundStatus: 'processing_refund',
-      refundLockTimestamp: Date.now(),
-      refundAttemptedBy: auth.email || 'admin',
-    }))
 
     const merchantOid = orderData.merchant_oid || orderData.orderNumber || orderRef.id
     const refundRes = await requestPayTRRefund({
@@ -101,6 +121,7 @@ export async function POST(req: NextRequest) {
         refundStatus: 'refunded',
         refundedAmountTRY: newTotalRefunded,
         refundError: null,
+        refundRequiresAdminReview: false,
         refundUpdatedAt: now,
         refundDetail: {
           lastRefundedAt: now,
@@ -120,6 +141,36 @@ export async function POST(req: NextRequest) {
         refundStatus: 'refunded',
         refundedAmountTRY: newTotalRefunded,
       })
+    } else if (refundRes.isTimeout) {
+      const timeoutMsg =
+        refundRes.errMsg ||
+        'PayTR iade isteği zaman aşımına uğradı. Çift iade riski nedeniyle sonuç belirsiz (refund_unknown) olarak işaretlendi; PayTR panelinden doğrulama gereklidir.'
+
+      await orderRef.update(cleanFirestoreData({
+        refundStatus: 'refund_unknown',
+        refundRequiresAdminReview: true,
+        requiresAdminReview: true,
+        refundError: timeoutMsg,
+        refundUpdatedAt: now,
+        refundDetail: {
+          timeoutAt: now,
+          attemptedAmountTRY: refundAmount,
+          adminEmail: auth.email,
+          status: 'refund_unknown',
+          errMsg: timeoutMsg,
+        },
+        updatedAt: now,
+      }))
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: timeoutMsg,
+          refundStatus: 'refund_unknown',
+          requiresAdminReview: true,
+        },
+        { status: 504 }
+      )
     } else {
       const errorMsg = refundRes.errMsg || 'PayTR iade talebi reddedildi.'
 

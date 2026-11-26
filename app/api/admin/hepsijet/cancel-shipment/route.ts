@@ -4,6 +4,11 @@ import { verifyAdminRequest } from '@/lib/hepsijet/serverAuth'
 import { deleteDeliveryOrder, HepsiJetTimeoutError, trackHepsiJetShipment, sanitizeLogMessage } from '@/lib/hepsijet/client'
 import { OrderCancellationRecord, OrderShippingData } from '@/lib/hepsijet/types'
 import { cleanFirestoreData } from '@/lib/firebase/firestoreUtils'
+import {
+  extractHepsiJetIntegrationStatus,
+  evaluateCancellationEligibility,
+} from '@/lib/orders/cancellationPolicy'
+import { cancelPendingPrintJobsForOrder } from '@/lib/printing/queue'
 
 interface CancelShipmentRequestBody {
   orderId: string
@@ -51,6 +56,7 @@ export async function POST(req: NextRequest) {
     let orderData: any = null
     let targetBarcode = ''
     let targetCustomerDeliveryNo = ''
+    let previousShippingStatus = 'created'
 
     await db.runTransaction(async (transaction) => {
       const docSnap = await transaction.get(orderRef)
@@ -67,6 +73,7 @@ export async function POST(req: NextRequest) {
       const shipping = data.shipping as OrderShippingData | undefined
       targetBarcode = shipping?.barcode || ''
       targetCustomerDeliveryNo = shipping?.customerDeliveryNo || ''
+      previousShippingStatus = shipping?.status || 'created'
 
       // İptal edilecek kargo var mı kontrolü
       if (!shipping || (shipping.status !== 'created' && !targetBarcode && !targetCustomerDeliveryNo)) {
@@ -81,6 +88,12 @@ export async function POST(req: NextRequest) {
 
       if (shipping.status === 'cancelled' && data.isTrash) {
         throw new Error('Bu siparişin HepsiJET kargo gönderisi zaten iptal edilmiş ve çöp kutusuna taşınmıştır.')
+      }
+
+      // Taşıyıcıya teslim edilmiş gönderi kontrolü (Firestore seviyesi)
+      const preCheck = evaluateCancellationEligibility(data, { liveDispatchEnabled: false })
+      if (!preCheck.allowed && preCheck.code !== 'ALREADY_CANCELLED') {
+        throw new Error(preCheck.reason || 'Taşıyıcıya teslim edilmiş kargo gönderisi silinemez.')
       }
 
       // Eşzamanlı Kilit Kontrolü (5 dakika aşım)
@@ -102,33 +115,69 @@ export async function POST(req: NextRequest) {
       orderData = data
     })
 
-    // 3. KARGO GÜNCEL DURUM KONTROLÜ (Eğer kargo kuryede veya dağıtımda ise iptal engellenir)
+    // 3. KARGO GÜNCEL DURUM KONTROLÜ (Ortak HepsiJET parser ile taşıyıcı doğrulaması)
     if (targetBarcode && process.env.HEPSIJET_LIVE_DISPATCH_ENABLED === 'true') {
+      let liveTrackStatus = null
+      let liveTrackingError: string | null = null
+
       try {
         const trackRes = await trackHepsiJetShipment([targetBarcode])
-        const latestStatus = (trackRes?.data?.status || '').toUpperCase()
-
-        const nonCancellableStatuses = ['DAGITIMDA', 'TESLIM_EDILDI', 'YOLDA', 'IN_TRANSIT', 'DELIVERED', 'OUT_FOR_DELIVERY']
-        if (nonCancellableStatuses.includes(latestStatus)) {
-          const revertMsg = `Kargo paketi operasyonel sürece girmiştir (${latestStatus}). API üzerinden iptal edilemez.`
-          await orderRef.update(cleanFirestoreData({
-            'shipping.status': 'cancel_failed',
-            'shipping.cancelFailedReason': revertMsg,
-            'shipping.updatedAt': new Date().toISOString(),
-          }))
-
-          return NextResponse.json(
-            {
-              success: false,
-              error: `${revertMsg} Lütfen HepsiJET operasyon birimi veya müşteri hizmetleri ile manuel iletişime geçiniz.`,
-              requiresAdminReview: true,
-              shippingStatus: 'cancel_failed',
-            },
-            { status: 422 }
-          )
-        }
+        liveTrackStatus = extractHepsiJetIntegrationStatus(trackRes, targetBarcode)
       } catch (trackErr: any) {
-        console.warn('HepsiJET takip kontrolü esnasında uyarı (iptal işlemine devam ediliyor):', trackErr?.message || trackErr)
+        liveTrackingError = trackErr?.message || 'HepsiJET takip servisi yanıt vermedi.'
+        console.warn('HepsiJET kargo iptali canlı takip hatası:', liveTrackingError)
+      }
+
+      const liveDecision = evaluateCancellationEligibility(orderData, {
+        liveTrackStatus,
+        liveTrackingError,
+        liveDispatchEnabled: true,
+        hasLiveShipment: true,
+      })
+
+      if (!liveDecision.allowed) {
+        const nowIso = new Date().toISOString()
+        // Gerçek kargo durumunu (in_transit vb.) 'cancel_failed' ile EZME!
+        const restoredShippingStatus =
+          liveDecision.code === 'CARRIER_HANDED_OVER' && liveDecision.mappedShippingStatus
+            ? liveDecision.mappedShippingStatus
+            : previousShippingStatus
+
+        await orderRef.update(
+          cleanFirestoreData({
+            'shipping.status': restoredShippingStatus,
+            'shipping.lastStatusText': liveDecision.carrierDisplayStatus || orderData?.shipping?.lastStatusText,
+            'shipping.updatedAt': nowIso,
+            cancellationRequest: {
+              status:
+                liveDecision.code === 'CARRIER_HANDED_OVER'
+                  ? 'rejected_carrier_handed_over'
+                  : 'pending_admin_review',
+              code: liveDecision.code,
+              reason: cancelReason,
+              detail: liveDecision.reason,
+              carrierStatusCode: liveDecision.carrierStatusCode || null,
+              carrierDisplayStatus: liveDecision.carrierDisplayStatus || null,
+              firestoreMismatch: Boolean(liveDecision.firestoreMismatch),
+              requiresAdminReview: true,
+              requestedBy: auth.email || 'admin',
+              requestedAt: nowIso,
+            },
+            requiresAdminReview: true,
+            updatedAt: nowIso,
+          })
+        )
+
+        return NextResponse.json(
+          {
+            success: false,
+            code: liveDecision.code,
+            error: liveDecision.reason,
+            requiresAdminReview: true,
+            shippingStatus: restoredShippingStatus,
+          },
+          { status: 422 }
+        )
       }
     }
 
@@ -229,10 +278,17 @@ export async function POST(req: NextRequest) {
       : []
 
     try {
+      const printCancelResult = await cancelPendingPrintJobsForOrder(
+        orderRef.id,
+        `HepsiJET gönderisi silindi: ${cancelReason}`
+      ).catch(() => ({ cancelledCount: 0, inProgressOrPrintedCount: 0, physicalPrintMayHaveStarted: false }))
+
       // Doğrulanmış HepsiJET silme sonrası sipariş çöp kutusuna taşınır
       // isTrash: true, trashedAt ve iptal durumu atomik olarak güncellenir.
       await orderRef.update(cleanFirestoreData({
         'shipping.status': 'cancelled',
+        'shipping.printStatus':
+          printCancelResult.cancelledCount > 0 ? 'cancelled' : orderData?.shipping?.printStatus,
         'shipping.cancelReason': cancelReason,
         'shipping.cancelledAt': cancelRecord.cancelledAt,
         'shipping.cancelledBy': auth.email || 'admin',

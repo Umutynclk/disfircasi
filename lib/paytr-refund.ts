@@ -30,6 +30,7 @@ export interface PayTRRefundRequest {
 
 export interface PayTRRefundResponse {
   status: 'success' | 'error'
+  isTimeout?: boolean
   errNo?: string
   errMsg?: string
   /** Ham API yanıtı */
@@ -137,7 +138,8 @@ export async function requestPayTRRefund(
     if (err instanceof Error && err.name === 'AbortError') {
       return {
         status: 'error',
-        errMsg: 'PayTR iade API yanıt vermedi (timeout). Çift iade riski nedeniyle tekrar denenmedi.',
+        isTimeout: true,
+        errMsg: 'PayTR iade API yanıt vermedi (timeout). Çift iade riski nedeniyle sonuç belirsiz (refund_unknown) olarak işaretlendi; PayTR panelinden doğrulama gereklidir.',
       }
     }
 
@@ -173,10 +175,27 @@ export function checkRefundEligibility(orderData: Record<string, any>): RefundEl
     return { eligible: false, reason: 'Ödemesi alınmamış siparişlere iade yapılamaz.' }
   }
 
+  // Ödeme yöntemi kontrolü: iyzico siparişleri PayTR iade servisine gönderilemez
+  const paymentMethod = String(orderData.paymentMethod || '').toLowerCase()
+  if (paymentMethod === 'iyzico') {
+    return {
+      eligible: false,
+      reason: 'Bu sipariş iyzico altyapısı ile ödenmiştir; PayTR iade servisi üzerinden iade edilemez.',
+    }
+  }
+
   // Zaten iade edilmiş mi?
   const refundStatus = orderData.refundStatus
   if (refundStatus === 'refunded') {
     return { eligible: false, reason: 'Bu sipariş için iade zaten tamamlanmıştır.' }
+  }
+
+  // Önceki iade isteği timeout/belirsiz durumda ise PayTR panelinden doğrulanmadan yeniden gönderilemez
+  if (refundStatus === 'refund_unknown') {
+    return {
+      eligible: false,
+      reason: 'Önceki PayTR iade isteğinin sonucu zaman aşımı nedeniyle belirsizdir (refund_unknown). Çift iade riskini önlemek için PayTR panelinden doğrulama yapılmadan tekrar iade gönderilemez.',
+    }
   }
 
   // İade işlemi devam ediyor mu? (idempotency – timeout koruması)

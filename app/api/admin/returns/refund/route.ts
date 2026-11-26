@@ -33,60 +33,115 @@ export async function POST(req: NextRequest) {
 
     const db = getAdminFirestore()
     const orderRef = db.collection('orders').doc(orderId)
-    const orderDoc = await orderRef.get()
+    // Atomik İdempotency Kilidi (Firestore Transaction — eşzamanlı çift iade engeli)
+    const nowIso = new Date().toISOString()
+    const adminEmail = auth.email || 'admin'
+    let orderData: Record<string, any> = {}
+    let returnRequests: ReturnRequest[] = []
+    let targetIdx = -1
+    let targetReturn!: ReturnRequest
+    let orderTotal = 0
+    let previouslyRefunded = 0
+    let finalRefundAmount = 0
+    let alreadyRefundedAmount: number | null = null
 
-    if (!orderDoc.exists) {
-      return NextResponse.json({ success: false, error: 'Sipariş bulunamadı.' }, { status: 404 })
+    try {
+      await db.runTransaction(async (transaction) => {
+        const freshOrderDoc = await transaction.get(orderRef)
+        if (!freshOrderDoc.exists) {
+          throw new Error('NOT_FOUND:Sipariş bulunamadı.')
+        }
+        const freshData = freshOrderDoc.data() || {}
+        const freshReturns: ReturnRequest[] = Array.isArray(freshData.returnRequests) ? [...freshData.returnRequests] : []
+        const idx = freshReturns.findIndex((r) => r.id === returnId)
+        if (idx === -1) {
+          throw new Error('NOT_FOUND:İade talebi bulunamadı.')
+        }
+
+        const ret = freshReturns[idx]
+        if (ret.refund?.status === 'refunded') {
+          alreadyRefundedAmount = Number(ret.refund.amountTRY || 0)
+          return
+        }
+        if (ret.refund?.status === 'processing') {
+          throw new Error('CONFLICT:Bu iade talebi için para iadesi şu anda işleniyor.')
+        }
+        if ((ret.refund as any)?.status === 'refund_unknown' || freshData.refundStatus === 'refund_unknown') {
+          throw new Error(
+            'CONFLICT:Önceki PayTR iade isteği zaman aşımına uğradı (refund_unknown). Çift iade riskini önlemek için PayTR panelinden doğrulama yapılmadan tekrar iade gönderilemez.'
+          )
+        }
+        if (String(freshData.paymentMethod || '').toLowerCase() === 'iyzico') {
+          throw new Error('BAD_REQUEST:Bu sipariş iyzico ile ödenmiştir; PayTR iade servisi üzerinden iade edilemez.')
+        }
+
+        const ordTotal = Number(freshData.total || 0)
+        const prevRef = Number(freshData.refundedAmountTRY || 0)
+        const remainingMax = Math.max(0, Math.round((ordTotal - prevRef) * 100) / 100)
+        const calcAmount =
+          Number(ret.refund?.amountTRY) ||
+          ret.items.reduce((s, it) => s + it.unitPriceAtPurchase * it.quantityRequested, 0)
+        const chosenAmount =
+          typeof amountTRY === 'number' && amountTRY > 0
+            ? Math.min(amountTRY, remainingMax)
+            : Math.min(calcAmount, remainingMax)
+
+        if (chosenAmount <= 0) {
+          throw new Error('BAD_REQUEST:İade edilebilir tutar sıfır veya sipariş tutarından daha önce tamamen iade edilmiş.')
+        }
+
+        const lockedReturn: ReturnRequest = {
+          ...ret,
+          refund: {
+            ...ret.refund,
+            status: 'processing',
+          },
+          updatedAt: nowIso,
+        }
+        freshReturns[idx] = lockedReturn
+
+        transaction.update(
+          orderRef,
+          cleanFirestoreData({
+            returnRequests: cleanFirestoreData(freshReturns),
+            refundStatus: 'processing_refund',
+            refundLockTimestamp: Date.now(),
+            updatedAt: nowIso,
+          })
+        )
+
+        orderData = freshData
+        returnRequests = freshReturns
+        targetIdx = idx
+        targetReturn = lockedReturn
+        orderTotal = ordTotal
+        previouslyRefunded = prevRef
+        finalRefundAmount = chosenAmount
+      })
+    } catch (txErr: any) {
+      const msg = String(txErr?.message || '')
+      if (msg.startsWith('NOT_FOUND:')) {
+        return NextResponse.json({ success: false, error: msg.slice(10) }, { status: 404 })
+      }
+      if (msg.startsWith('CONFLICT:')) {
+        return NextResponse.json({ success: false, error: msg.slice(9) }, { status: 409 })
+      }
+      if (msg.startsWith('BAD_REQUEST:')) {
+        return NextResponse.json({ success: false, error: msg.slice(12) }, { status: 400 })
+      }
+      throw txErr
     }
 
-    const orderData = orderDoc.data() || {}
-    const returnRequests: ReturnRequest[] = Array.isArray(orderData.returnRequests) ? orderData.returnRequests : []
-    const targetIdx = returnRequests.findIndex((r) => r.id === returnId)
-
-    if (targetIdx === -1) {
-      return NextResponse.json({ success: false, error: 'İade talebi bulunamadı.' }, { status: 404 })
-    }
-
-    const targetReturn = returnRequests[targetIdx]
-
-    // İdempotency Kontrolü: Bu talep için zaten para iadesi yapılmış mı?
-    if (targetReturn.refund?.status === 'refunded') {
+    if (alreadyRefundedAmount !== null) {
       return NextResponse.json({
         success: true,
         alreadyRefunded: true,
         message: 'Bu iade talebinin para iadesi zaten tamamlanmıştır.',
-        refundAmountTRY: targetReturn.refund.amountTRY,
+        refundAmountTRY: alreadyRefundedAmount,
       })
     }
 
-    // İade edilecek tutarın hesaplanması
-    const orderTotal = Number(orderData.total || 0)
-    const previouslyRefunded = Number(orderData.refundedAmountTRY || 0)
-    const remainingRefundableMax = Math.max(0, Math.round((orderTotal - previouslyRefunded) * 100) / 100)
-
-    const calculatedReturnAmount = Number(targetReturn.refund?.amountTRY) ||
-      targetReturn.items.reduce((s, it) => s + (it.unitPriceAtPurchase * it.quantityRequested), 0)
-
-    const finalRefundAmount = typeof amountTRY === 'number' && amountTRY > 0
-      ? Math.min(amountTRY, remainingRefundableMax)
-      : Math.min(calculatedReturnAmount, remainingRefundableMax)
-
-    if (finalRefundAmount <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'İade edilebilir tutar sıfır veya sipariş tutarından daha önce tamamen iade edilmiş.' },
-        { status: 400 }
-      )
-    }
-
     const merchantOid = orderData.merchant_oid || orderData.orderNumber || orderRef.id
-    const nowIso = new Date().toISOString()
-    const adminEmail = auth.email || 'admin'
-
-    // Kilit koy
-    targetReturn.refund = {
-      ...targetReturn.refund,
-      status: 'processing',
-    }
 
     // PayTR Refund Çağrısı
     let refundRes: any
@@ -98,6 +153,36 @@ export async function POST(req: NextRequest) {
       })
     } catch (payErr: any) {
       refundRes = { status: 'error', errMsg: payErr?.message || 'PayTR iade servisi hatası' }
+    }
+
+    if (refundRes.isTimeout) {
+      targetReturn.refund = {
+        ...targetReturn.refund,
+        status: 'refund_unknown' as any,
+        error:
+          refundRes.errMsg ||
+          'PayTR iade servisi zaman aşımına uğradı. PayTR panelinden manuel doğrulama gereklidir.',
+      }
+      await orderRef.collection('returnRequests').doc(returnId).set(cleanFirestoreData(targetReturn), { merge: true })
+      returnRequests[targetIdx] = targetReturn
+      await orderRef.update(
+        cleanFirestoreData({
+          returnRequests,
+          refundStatus: 'refund_unknown',
+          refundRequiresAdminReview: true,
+          requiresAdminReview: true,
+          updatedAt: new Date().toISOString(),
+        })
+      )
+      return NextResponse.json(
+        {
+          success: false,
+          refundStatus: 'refund_unknown',
+          requiresAdminReview: true,
+          error: targetReturn.refund.error,
+        },
+        { status: 504 }
+      )
     }
 
     if (refundRes.status !== 'success') {
