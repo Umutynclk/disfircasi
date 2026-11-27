@@ -128,17 +128,27 @@ export function getCommonOrderDisplayStatus(order: any): OrderStatusBadgeInfo {
     }
   }
 
-  // 6. HepsiJET Gönderiyi Teslim Aldı (Kargoya Verildi)
+  // 6a. Gerçek HepsiJET Gönderiyi Teslim Aldı (Kargoya Verildi)
   if (
     rawShippingStatus === 'accepted' ||
     providerStatus === 'ACCEPTED' ||
     providerStatus === 'DELIVERY_ACCEPTED' ||
-    providerStatus === 'COLLECTED' ||
-    rawOrderStatus === 'shipped'
+    providerStatus === 'COLLECTED'
   ) {
     return {
       key: 'accepted',
       text: 'Kargoya Verildi',
+      color: 'text-sky-700',
+      bg: 'bg-sky-50',
+      border: 'border-sky-200',
+    }
+  }
+
+  // 6b. Zamanlanmış Uygulama Kargoda Durumu (Henüz HepsiJET kabulü gelmemiş olsa bile Kargoda görünür)
+  if (rawOrderStatus === 'shipped' || order.scheduledShippedApplied === true) {
+    return {
+      key: 'accepted',
+      text: 'Kargoda',
       color: 'text-sky-700',
       bg: 'bg-sky-50',
       border: 'border-sky-200',

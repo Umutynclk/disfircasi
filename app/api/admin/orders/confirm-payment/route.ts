@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAdminRequest } from '@/lib/hepsijet/serverAuth'
 import { getAdminFirestore } from '@/lib/firebase/admin'
 import { processOrderAutoDispatchAndPrint } from '@/lib/hepsijet/autoDispatch'
+import { calculateScheduledShippedAt } from '@/lib/orders/shippingSchedule'
 
 /**
  * Admin Havale / EFT Ödeme Onaylama Uç Noktası
@@ -66,10 +67,15 @@ export async function POST(req: NextRequest) {
       const wasAlreadyPaid = orderData.paymentStatus === 'PAID' || orderData.paymentStatus === 'paid'
 
       if (!wasAlreadyPaid) {
+        const schedule = calculateScheduledShippedAt(nowIso)
         transaction.update(orderRef, {
           paymentStatus: 'PAID',
           status: 'processing',
           paidAt: nowIso,
+          preparedAt: nowIso,
+          statusDueAt: schedule.statusDueAt,
+          scheduledShippedApplied: false,
+          'shipping.statusScheduledAt': schedule.statusDueAt,
           paymentConfirmedBy: auth.email || 'admin',
           paymentConfirmedAt: nowIso,
           updatedAt: nowIso,

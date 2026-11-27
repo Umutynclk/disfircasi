@@ -129,6 +129,13 @@ interface Order {
     }>
   }
   delayedPaymentAfterCancel?: boolean
+  paidAt?: string
+  preparedAt?: string
+  statusDueAt?: string
+  scheduledShippedApplied?: boolean
+  scheduledShippedAppliedAt?: string
+  deliveredAt?: string
+  completedAt?: string
   refundError?: string
   refundedAmountTRY?: number
   refundUpdatedAt?: string
@@ -2955,6 +2962,76 @@ export default function OrdersPage() {
                           </button>
                         </div>
                     )}
+                    {/* Sipariş & Kargo Zaman Çizelgesi (Otomatik Zamanlama + Gerçek HepsiJET Takibi) */}
+                    <div className="pt-3 border-t border-gray-200 mt-3 space-y-1.5 text-[11px] bg-slate-50 p-3 rounded-xl">
+                      <p className="font-bold text-slate-800 text-xs mb-1">Sipariş &amp; Kargo Zaman Çizelgesi</p>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Sipariş Oluşturulma:</span>
+                        <span className="font-semibold text-slate-800">
+                          {selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleString('tr-TR') : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Ödeme Onayı (PAID):</span>
+                        <span className="font-semibold text-slate-800">
+                          {selectedOrder.paidAt ? new Date(selectedOrder.paidAt).toLocaleString('tr-TR') : 'Bekliyor'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Hazırlanma Zamanı:</span>
+                        <span className="font-semibold text-slate-800">
+                          {selectedOrder.preparedAt || selectedOrder.paidAt
+                            ? new Date(selectedOrder.preparedAt || selectedOrder.paidAt!).toLocaleString('tr-TR')
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Planlanan Kargoda Geçişi:</span>
+                        <span className="font-semibold text-sky-700">
+                          {selectedOrder.statusDueAt || (selectedOrder.shipping as any)?.statusScheduledAt
+                            ? new Date(
+                                selectedOrder.statusDueAt || (selectedOrder.shipping as any)?.statusScheduledAt
+                              ).toLocaleString('tr-TR')
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Uygulama Kargoda Geçişi:</span>
+                        <span className="font-semibold text-indigo-700">
+                          {selectedOrder.scheduledShippedAppliedAt || (selectedOrder.shipping as any)?.statusChangedAt
+                            ? new Date(
+                                selectedOrder.scheduledShippedAppliedAt ||
+                                  (selectedOrder.shipping as any)?.statusChangedAt
+                              ).toLocaleString('tr-TR')
+                            : 'Henüz geçmedi'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">HepsiJET Taşıyıcı Kabulü:</span>
+                        <span className="font-semibold text-emerald-700">
+                          {(selectedOrder.shipping as any)?.carrierAcceptedAt
+                            ? `${new Date((selectedOrder.shipping as any).carrierAcceptedAt).toLocaleString('tr-TR')}${
+                                (selectedOrder.shipping as any)?.carrierStatus
+                                  ? ` (${(selectedOrder.shipping as any).carrierStatus})`
+                                  : ''
+                              }`
+                            : 'Henüz kabul edilmedi'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500">Gerçek Teslimat Zamanı:</span>
+                        <span className="font-semibold text-emerald-800">
+                          {(selectedOrder.shipping as any)?.deliveredAt || selectedOrder.deliveredAt || selectedOrder.completedAt
+                            ? new Date(
+                                (selectedOrder.shipping as any)?.deliveredAt ||
+                                  selectedOrder.deliveredAt ||
+                                  selectedOrder.completedAt!
+                              ).toLocaleString('tr-TR')
+                            : 'Teslim edilmedi'}
+                        </span>
+                      </div>
+                    </div>
+
                     {/* Yasal Cayma Talebi İnceleme & Sonuçlandırma Paneli */}
                     {selectedOrder.withdrawalRequest && (
                       <div className="pt-3 border-t border-amber-200 mt-3 space-y-2 bg-amber-50/70 p-3 rounded-xl">

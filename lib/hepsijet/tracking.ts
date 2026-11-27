@@ -449,13 +449,24 @@ export async function syncOrderTrackingFromHepsiJet(
       if (willUpgrade) {
         updateData['shipping.status'] = mapping.shippingStatus
         updateData['shipping.providerStatus'] = mapping.providerStatus
+        updateData['shipping.carrierStatus'] = mapping.providerStatus
         updateData['shipping.displayStatus'] = mapping.displayStatus
         updateData['shipping.syncStatus'] = 'synced'
+
+        // Gerçek HepsiJET taşıyıcı kabul zamanını yalnızca gerçek taşıyıcı kabulünde kaydet
+        if (
+          ['accepted', 'in_transit', 'out_for_delivery', 'delivered'].includes(mapping.shippingStatus) &&
+          !shipping.carrierAcceptedAt
+        ) {
+          updateData['shipping.carrierAcceptedAt'] = transactionDate
+        }
 
         if (needsStatusUpdate) {
           updateData['status'] = mapping.orderStatus
           if (mapping.orderStatus === 'completed' || mapping.shippingStatus === 'delivered') {
             updateData['completedAt'] = transactionDate
+            updateData['deliveredAt'] = transactionDate
+            updateData['shipping.deliveredAt'] = transactionDate
             updateData['terminalStatusAt'] = transactionDate
             calculatedArchiveAt = calculateArchiveAt(transactionDate)
             updateData['archiveAt'] = calculatedArchiveAt
@@ -466,6 +477,33 @@ export async function syncOrderTrackingFromHepsiJet(
       if (!dryRun) {
         try {
           await db.collection('orders').doc(orderId).update(updateData)
+
+          // Tek seferlik idempotent müşteri bildirimleri (dağıtımda & teslim edildi)
+          if (willUpgrade && (mapping.shippingStatus === 'out_for_delivery' || mapping.shippingStatus === 'delivered')) {
+            const isDeliveredNow = mapping.shippingStatus === 'delivered'
+            const notifId = isDeliveredNow ? `notif_delivered_${orderId}` : `notif_ofd_${orderId}`
+            const notifRef = db.collection('notifications').doc(notifId)
+            const existingNotif = await notifRef.get()
+            if (!existingNotif.exists) {
+              const orderNumber = data.orderNumber || orderId
+              await notifRef.set({
+                id: notifId,
+                orderId,
+                orderNumber,
+                userId: data.userId || null,
+                email: data.userEmail || data.customer?.email || '',
+                type: isDeliveredNow ? 'order_delivered' : 'order_out_for_delivery',
+                title: isDeliveredNow
+                  ? `Siparişiniz Teslim Edildi (#${orderNumber})`
+                  : `Siparişiniz Dağıtımda (#${orderNumber})`,
+                message: isDeliveredNow
+                  ? 'Siparişiniz HepsiJET tarafından teslim edilmiştir. İhtiyaç halinde profilinizden iade talebi oluşturabilirsiniz.'
+                  : 'Siparişiniz HepsiJET kuryesi tarafından dağıtıma çıkarılmıştır.',
+                read: false,
+                createdAt: nowIso,
+              })
+            }
+          }
         } catch (err: any) {
           results.push({
             orderId,

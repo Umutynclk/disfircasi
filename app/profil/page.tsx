@@ -55,6 +55,7 @@ import { getCommonOrderDisplayStatus } from '@/lib/hepsijet/status-display'
 import { RETURN_REASONS, ReturnReasonCode, ReturnRequest, AvailableDeliveryDate } from '@/lib/returns/types'
 import { addToCart } from '@/lib/utils/cart'
 import { getCustomerOrderActionMode } from '@/lib/orders/cancellationPolicy'
+import { WAITING_FOR_TRACKING_MESSAGE, hasRealHepsiJetTracking } from '@/lib/orders/shippingSchedule'
 import KvkkConsentsCard from '@/components/profile/KvkkConsentsCard'
 import AccountDeletionCard from '@/components/profile/AccountDeletionCard'
 
@@ -921,14 +922,16 @@ export default function ProfilePage() {
                     const isCancellable = actionMode === 'cancel'
                     const isWithdrawalEligible = actionMode === 'withdrawal' && !order.withdrawalRequest
 
-                    // Kargo takip bilgisi
+                    // Kargo takip bilgisi (yalnızca gerçek HepsiJET barkodu varsa aktif)
                     const shipping = order.shipping
-                    const hasRealBarcode =
-                      shipping?.barcode &&
-                      !/NUMUNE|SAMPLE|TEST/i.test(shipping.barcode) &&
-                      !shipping.barcode.startsWith('SIM-')
-                    const trackingBarcode = hasRealBarcode ? shipping.barcode : null
-                    const trackingUrl = trackingBarcode ? buildHepsiJetTrackingUrl(trackingBarcode) : null
+                    const hasRealBarcode = hasRealHepsiJetTracking(order)
+                    const trackingBarcode = hasRealBarcode ? (shipping?.barcode || shipping?.trackingNumber) : null
+                    const trackingUrl = trackingBarcode ? (shipping?.trackingUrl || buildHepsiJetTrackingUrl(trackingBarcode)) : null
+                    const isScheduledOrShippedWithoutTracking =
+                      !isCancelled &&
+                      !isDelivered &&
+                      (rawStatus === 'shipped' || order.scheduledShippedApplied === true) &&
+                      !hasRealBarcode
 
                     // Ortak Durum Rozeti
                     const statusInfo = getCommonOrderDisplayStatus(order)
@@ -1014,6 +1017,14 @@ export default function ProfilePage() {
                               ))}
                             </div>
 
+                            {/* Zamanlanmış Kargoda Bilgilendirmesi (HepsiJET takip henüz oluşmadıysa) */}
+                            {isScheduledOrShippedWithoutTracking && (
+                              <div className="p-3 rounded-xl bg-sky-50/80 border border-sky-200 text-xs text-sky-900 flex items-start gap-2 leading-relaxed">
+                                <FiTruck className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+                                <span>{WAITING_FOR_TRACKING_MESSAGE}</span>
+                              </div>
+                            )}
+
                             {/* Açık / Sonuçlanan Cayma Talebi Bildirimi */}
                             {order.withdrawalRequest && (
                               <div className={`px-3 py-2 rounded-xl border text-xs mt-2 space-y-1 ${
@@ -1090,7 +1101,7 @@ export default function ProfilePage() {
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 font-bold transition-colors border border-sky-200"
                               >
                                 <FiTruck className="w-3.5 h-3.5 text-sky-600" />
-                                <span>Kargomu Takip Et</span>
+                                <span>Kargo Takibini Görüntüle</span>
                                 <FiExternalLink className="w-3 h-3 opacity-60" />
                               </a>
                             )}

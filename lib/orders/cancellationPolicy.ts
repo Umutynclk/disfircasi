@@ -281,16 +281,23 @@ export function evaluateCancellationEligibility(
     }
   }
 
-  // Firestore'da kayıtlı taşıyıcı teslim durumu
-  if (orderStatus === 'shipped' || CARRIER_HANDED_OVER_SHIPPING_STATUSES.has(shippingStatus)) {
+  // Zamanlanmış Kargoda kilidi veya Firestore'da kayıtlı taşıyıcı teslim durumu:
+  // Uygulama durumu Kargoda'ya geçtiği andan itibaren (taşıyıcı kabulü gecikmiş olsa bile)
+  // normal iptal ve otomatik PayTR/iyzico iadesi KESİN engellenir; yasal cayma talebi açıktır.
+  if (
+    orderStatus === 'shipped' ||
+    orderData?.scheduledShippedApplied === true ||
+    orderData?.cancelLockedBySchedule === true ||
+    CARRIER_HANDED_OVER_SHIPPING_STATUSES.has(shippingStatus)
+  ) {
     return {
       allowed: false,
       code: 'CARRIER_HANDED_OVER',
       allowWithdrawalRequest: true,
-      carrierDisplayStatus: shipping.lastStatusText || 'Kargoya Teslim Edildi',
-      mappedShippingStatus: shippingStatus || 'in_transit',
+      carrierDisplayStatus: shipping.lastStatusText || 'Kargoda',
+      mappedShippingStatus: shippingStatus || 'created',
       reason:
-        'Siparişiniz kargo firmasına teslim edildiği için anlık iptal ve otomatik iade yapılamaz. Yasal cayma hakkınızı kullanmak için "Cayma Talebi İlet" seçeneğini kullanabilirsiniz.',
+        'Siparişiniz kargoda aşamasına geçtiği için normal iptal ve otomatik ödeme iadesi yapılamaz. Yasal cayma hakkınızı kullanmak için "Cayma Talebi İlet" seçeneğini kullanabilirsiniz.',
     }
   }
 
@@ -377,6 +384,8 @@ export function evaluateWithdrawalEligibility(orderData: Record<string, any>): W
 
   const isInCarrierHands =
     orderStatus === 'shipped' ||
+    orderData?.scheduledShippedApplied === true ||
+    orderData?.cancelLockedBySchedule === true ||
     ['accepted', 'in_transit', 'out_for_delivery', 'failed'].includes(shippingStatus)
 
   if (!isInCarrierHands) {
@@ -404,7 +413,12 @@ export function getCustomerOrderActionMode(order: Record<string, any>): 'cancel'
     return 'return'
   }
 
-  if (rawStatus === 'shipped' || CARRIER_HANDED_OVER_SHIPPING_STATUSES.has(rawShipStatus)) {
+  if (
+    rawStatus === 'shipped' ||
+    order?.scheduledShippedApplied === true ||
+    order?.cancelLockedBySchedule === true ||
+    CARRIER_HANDED_OVER_SHIPPING_STATUSES.has(rawShipStatus)
+  ) {
     return 'withdrawal'
   }
 

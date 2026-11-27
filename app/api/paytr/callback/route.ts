@@ -5,6 +5,7 @@ import {
 } from '@/lib/paytr'
 import { getAdminFirestore } from '@/lib/firebase/admin'
 import { processOrderAutoDispatchAndPrint } from '@/lib/hepsijet/autoDispatch'
+import { calculateScheduledShippedAt } from '@/lib/orders/shippingSchedule'
 
 function plainOkResponse() {
   return new NextResponse('OK', {
@@ -534,8 +535,9 @@ export async function POST(
             }
 
             // ------------------------------------------------
-            // MARK PAID
+            // MARK PAID + SCHEDULED SHIPPING TIME (Europe/Istanbul)
             // ------------------------------------------------
+            const schedule = calculateScheduledShippedAt(paidAt)
 
             transaction.update(
               orderRef,
@@ -547,6 +549,10 @@ export async function POST(
                   'processing',
 
                 paidAt,
+                preparedAt: paidAt,
+                statusDueAt: schedule.statusDueAt,
+                scheduledShippedApplied: false,
+                'shipping.statusScheduledAt': schedule.statusDueAt,
 
                 updatedAt:
                   paidAt,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { retrieveIyzicoCheckoutForm } from '@/lib/iyzico'
 import { getAdminFirestore } from '@/lib/firebase/admin'
 import { processOrderAutoDispatchAndPrint } from '@/lib/hepsijet/autoDispatch'
+import { calculateScheduledShippedAt } from '@/lib/orders/shippingSchedule'
 
 function normalizeCurrency(val?: string): string {
   const c = (val || '').trim().toUpperCase()
@@ -111,12 +112,30 @@ export async function POST(req: NextRequest) {
           return { action: 'currency_mismatch' as const }
         }
 
-        // Başarılı Ödeme Güncellemesi
+        // Başarılı Ödeme Güncellemesi + Zamanlanmış Kargoda Planlaması (Europe/Istanbul)
         const paidAt = new Date().toISOString()
+
+        // Gecikmiş callback koruması: sipariş önceden iptal edildiyse yeniden processing/kargo yapma
+        if (orderData.status === 'cancelled') {
+          transaction.update(orderRef!, {
+            paymentStatus: 'PAID',
+            paidAt,
+            delayedPaymentAfterCancel: true,
+            requiresAdminReview: true,
+            updatedAt: paidAt,
+          })
+          return { action: 'paid_but_cancelled' as const }
+        }
+
+        const schedule = calculateScheduledShippedAt(paidAt)
         transaction.update(orderRef!, {
           paymentStatus: 'PAID',
           status: 'processing',
           paidAt,
+          preparedAt: paidAt,
+          statusDueAt: schedule.statusDueAt,
+          scheduledShippedApplied: false,
+          'shipping.statusScheduledAt': schedule.statusDueAt,
           updatedAt: paidAt,
           iyzico: {
             paymentId: result.paymentId,
